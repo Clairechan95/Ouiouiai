@@ -21,6 +21,7 @@ export interface WordEntry {
   conjugations?: VerbConjugation[];
   detectedForm?: { infinitive: string; tense: string; person: string };
   genderForms?: GenderForms;
+  isVerb?: boolean;
   reflexiveForm?: string;
   imageKeyword?: string;
 }

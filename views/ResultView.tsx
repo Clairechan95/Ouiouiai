@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, AlertCircle, Globe, ShieldAlert, Layers } from 'lucide-react';
 import { useAppContext } from '../App';
-import { lookupWord, generateWordImages, chatWithWordContext } from '../services/geminiService';
+import { lookupWord, lookupConjugations, generateWordImages, chatWithWordContext } from '../services/geminiService';
 import { storage } from '../services/storageService';
 import { WordEntry, ChatMessage, GenderForms } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
@@ -18,6 +18,7 @@ const ResultView: React.FC = () => {
   const [data, setData] = useState<WordEntry | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
+  const [conjLoading, setConjLoading] = useState(false);
   
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -52,6 +53,18 @@ const ResultView: React.FC = () => {
       const wordData = await lookupWord(text, currentLevel);
       setData(wordData);
       storage.saveWordToCache(wordData); // 立即缓存，确保最近搜索可离线加载
+
+      // 变位表异步加载
+      if (wordData.isVerb || (wordData.pos && wordData.pos.startsWith('v'))) {
+        setConjLoading(true);
+        const verbInfinitive = wordData.detectedForm?.infinitive || wordData.text;
+        lookupConjugations(verbInfinitive, wordData.detectedForm?.tense).then(conjs => {
+          if (conjs.length > 0) {
+            setData(prev => prev ? { ...prev, conjugations: conjs } : prev);
+          }
+          setConjLoading(false);
+        });
+      }
 
       // 图片生成（后台异步，不阻塞主流程）
       generateWordImages(wordData.text, wordData.imageKeyword || '').then(urls => {
@@ -269,7 +282,15 @@ const ResultView: React.FC = () => {
             ))}
           </div>
 
-          {data.conjugations && data.conjugations.length > 0 && (
+          {conjLoading && (
+            <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-3 text-gray-400">
+                <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-secondary animate-pulse" />
+                <span className="text-sm font-bold animate-pulse">正在加载变位表...</span>
+              </div>
+            </div>
+          )}
+          {!conjLoading && data.conjugations && data.conjugations.length > 0 && (
             <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm border border-gray-100">
                <h3 className="text-base sm:text-xl font-black text-gray-800 mb-4 sm:mb-6 flex items-center gap-2"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-secondary" /><span>核心变位</span></h3>
               <div className="space-y-4 sm:space-y-6">

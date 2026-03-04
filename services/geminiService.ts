@@ -62,8 +62,8 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
     "pos": "词性(如 n.f., v., adj.)",
     "ipa": "国际音标",
     "detectedForm": 若输入本身是某个变位形式而非动词原形（如 voudrais、allait、ferez），填写：{"infinitive": "动词原形", "tense": "所属时态（中法双语，如 Conditionnel présent 条件式现在时）", "person": "人称（如 1re pers. sing.）"}，否则填 null,
-    "conjugations": 若为动词，只返回恰好2个时态（不多不少）：Présent 直陈现在时 和 Passé composé 复合过去时。若输入本身是其他时态的变位形式，则替换第2个为该时态。每个时态包含6个人称完整变位。格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["j'ai xxx","tu as xxx","il/elle a xxx","nous avons xxx","vous avez xxx","ils/elles ont xxx"]}]，非动词返回[],
-    "examples": 只提供恰好2条例句，不多不少：[{"french":"例句1","chinese":"译文1"},{"french":"例句2","chinese":"译文2"}],
+    "isVerb": 是动词填 true，否则填 false,
+    "examples": 只提供恰好2条例句：[{"french":"例句1","chinese":"译文1"},{"french":"例句2","chinese":"译文2"}],
     "funNote": "趣味助记词或文化小常识",
     "themes": ["相关主题标签1", "标签2"],
     "imageKeyword": "2到4个英文单词，精准描述该词核心含义的具体视觉场景，用于AI图片生成，必须是英文",
@@ -94,7 +94,8 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
       frenchDefinition: result.frenchDefinition,
       ipa: result.ipa,
       pos: result.pos,
-      conjugations: result.conjugations || [],
+      conjugations: [],
+      isVerb: result.isVerb || false,
       examples: result.examples || [],
       funNote: result.funNote,
       themes: result.themes || ["通用"],
@@ -116,6 +117,30 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
 export const generateSpeech = async (text: string): Promise<string | null> => {
   // 仅作为占位，实际逻辑在 AudioPlayer.tsx 中通过浏览器 API 实现
   return `local_tts:${text}`;
+};
+
+// --- 变位表异步加载 ---
+
+export const lookupConjugations = async (
+  infinitive: string,
+  detectedTense?: string
+): Promise<VerbConjugation[]> => {
+  const extraTense = detectedTense
+    ? `同时必须包含 ${detectedTense} 的完整变位。`
+    : '';
+  const prompt = `返回法语动词"${infinitive}"的变位表JSON数组，包含 Présent 直陈现在时 和 Passé composé 复合过去时。${extraTense}每个时态含6个人称完整变位（含主语代词）。只返回JSON数组，格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["j'ai xxx","tu as xxx","il/elle a xxx","nous avons xxx","vous avez xxx","ils/elles ont xxx"]}]`;
+  try {
+    const data = await fetchDeepSeek('/chat/completions', {
+      model: "deepseek-chat",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3
+    });
+    const content = data.choices[0].message.content;
+    const match = content.match(/\[[\s\S]*\]/);
+    return match ? JSON.parse(match[0]) : [];
+  } catch {
+    return [];
+  }
 };
 
 // --- AI 聊天答疑 ---
