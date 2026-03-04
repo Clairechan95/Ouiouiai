@@ -62,12 +62,8 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
     "pos": "词性(如 n.f., v., adj.)",
     "ipa": "国际音标",
     "detectedForm": 若输入本身是某个变位形式而非动词原形（如 voudrais、allait、ferez），填写：{"infinitive": "动词原形", "tense": "所属时态（中法双语，如 Conditionnel présent 条件式现在时）", "person": "人称（如 1re pers. sing.）"}，否则填 null,
-    "conjugations": 若为动词，返回变位表，每个时态包含全部6个人称（含主语代词）：
-    规则1：固定包含 Présent 直陈现在时、Passé composé 复合过去时。
-    规则2：若输入是某个变位形式且其时态不是上述2个，必须额外追加该时态。
-    格式：[{"tense": "Présent 直陈现在时", "forms": ["je xxx", "tu xxx", "il/elle xxx", "nous xxx", "vous xxx", "ils/elles xxx"]}, {"tense": "Passé composé 复合过去时", "forms": ["j'ai/je suis xxx", "tu as/es xxx", "il/elle a/est xxx", "nous avons/sommes xxx", "vous avez/êtes xxx", "ils/elles ont/sont xxx"]}]
-    非动词则返回 [],
-    "examples": [{"french": "法语例句1", "chinese": "中文翻译1"}, {"french": "法语例句2", "chinese": "中文翻译2"}],
+    "conjugations": 若为动词，只返回恰好2个时态（不多不少）：Présent 直陈现在时 和 Passé composé 复合过去时。若输入本身是其他时态的变位形式，则替换第2个为该时态。每个时态包含6个人称完整变位。格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["j'ai xxx","tu as xxx","il/elle a xxx","nous avons xxx","vous avez xxx","ils/elles ont xxx"]}]，非动词返回[],
+    "examples": 只提供恰好2条例句，不多不少：[{"french":"例句1","chinese":"译文1"},{"french":"例句2","chinese":"译文2"}],
     "funNote": "趣味助记词或文化小常识",
     "themes": ["相关主题标签1", "标签2"],
     "imageKeyword": "2到4个英文单词，精准描述该词核心含义的具体视觉场景，用于AI图片生成，必须是英文",
