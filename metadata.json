@@ -1,0 +1,7 @@
+{
+  "name": "OuiOui AI - 法语伴侣",
+  "description": "专为中国学生设计的AI法语词典与学习助手。具备智能查词、口语纠音、故事记忆与闪卡复习功能。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

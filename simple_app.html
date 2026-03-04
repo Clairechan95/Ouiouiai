@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OuiOui AI - 法语学习伴侣</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        secondary: '#ec4899',
+                        accent: '#f59e0b',
+                        background: '#fdfbf7',
+                        surface: '#ffffff',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Hide scrollbar for clean UI in cards */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-background text-gray-800 antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // 简化的 App 组件
+        function App() {
+            const [searchText, setSearchText] = React.useState('');
+            const [result, setResult] = React.useState(null);
+            const [loading, setLoading] = React.useState(false);
+
+            const handleSearch = async (e) => {
+                e.preventDefault();
+                if (!searchText.trim()) return;
+                
+                setLoading(true);
+                try {
+                    // 这里可以替换为实际的 API 调用
+                    // 现在返回一个模拟结果
+                    setResult({
+                        text: searchText,
+                        chineseDefinition: '这是一个模拟的中文释义',
+                        frenchDefinition: '这是一个模拟的法语定义',
+                        pos: 'n.m.',
+                        ipa: '/ˈɛɡzɑ̃pl/',
+                        examples: [
+                            { french: 'C\'est un exemple.', chinese: '这是一个例子。' }
+                        ],
+                        funNote: '这是一个有趣的助记词'
+                    });
+                } catch (error) {
+                    console.error('搜索失败:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col p-6 md:p-12 pt-12 md:pt-24 bg-background">
+                    {/* 装饰元素 */}
+                    <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-primary/5 rounded-full blur-3xl opacity-50"></div>
+                    <div className="absolute bottom-[-100px] left-[-30px] w-80 h-80 bg-secondary/5 rounded-full blur-3xl opacity-50"></div>
+
+                    {/* 主内容 */}
+                    <div className="relative z-10 max-w-4xl mx-auto w-full">
+                        <div className="text-center mb-12">
+                            <h1 className="text-4xl md:text-6xl font-black text-gray-800 mb-4 font-sans tracking-tight">
+                                Bonjour! 👋
+                            </h1>
+                            <p className="text-lg text-gray-500 max-w-md mx-auto">
+                                输入法语单词或句子，由 AI 深度解析其用法、变位与语境。
+                            </p>
+                        </div>
+
+                        {/* 搜索表单 */}
+                        <form onSubmit={handleSearch} className="mb-10">
+                            <div className="relative flex items-center shadow-2xl shadow-primary/10 rounded-3xl overflow-hidden">
+                                <input
+                                    type="text"
+                                    value={searchText}
+                                    onChange={(e) => setSearchText(e.target.value)}
+                                    placeholder="单词、短语、或整个句子..."
+                                    className="w-full p-6 pl-14 md:p-8 md:pl-16 rounded-3xl bg-white border-2 border-transparent focus:border-primary/20 outline-none text-xl text-gray-700 placeholder:text-gray-300"
+                                />
+                                <svg className="absolute left-6 md:left-7 top-1/2 -translate-y-1/2 text-gray-400 w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                                <button 
+                                    type="submit"
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 bg-primary hover:bg-primary/90 text-white px-6 py-3 md:py-4 rounded-2xl flex items-center gap-2 font-bold transition-all active:scale-95"
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    ) : (
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                        </svg>
+                                    )}
+                                    <span className="hidden md:inline">查询</span>
+                                </button>
+                            </div>
+                        </form>
+
+                        {/* 结果展示 */}
+                        {result && (
+                            <div className="bg-white rounded-3xl shadow-xl p-8 md:p-10">
+                                <h2 className="text-3xl font-bold mb-6 text-primary">{result.text}</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">中文释义</h3>
+                                        <p className="text-lg text-gray-800">{result.chineseDefinition}</p>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">法语定义</h3>
+                                        <p className="text-lg text-gray-800">{result.frenchDefinition}</p>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">词性</h3>
+                                        <p className="text-lg text-gray-800">{result.pos}</p>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">音标</h3>
+                                        <p className="text-lg text-gray-800">{result.ipa}</p>
+                                    </div>
+                                </div>
+                                
+                                {/* 例句 */}
+                                <div className="mt-8">
+                                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">例句</h3>
+                                    {result.examples.map((example, index) => (
+                                        <div key={index} className="mb-4 pb-4 border-b border-gray-100 last:border-0 last:mb-0 last:pb-0">
+                                            <p className="text-lg font-medium text-gray-800 mb-2">{example.french}</p>
+                                            <p className="text-gray-600">{example.chinese}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                
+                                {/* 趣味助记 */}
+                                {result.funNote && (
+                                    <div className="mt-8 p-4 bg-yellow-50 rounded-xl border border-yellow-100">
+                                        <h3 className="text-sm font-bold text-yellow-700 uppercase tracking-wider mb-2">趣味助记</h3>
+                                        <p className="text-gray-700">{result.funNote}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // 渲染应用
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
