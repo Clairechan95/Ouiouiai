@@ -1,5 +1,6 @@
 
-import { WordEntry, CEFRLevel, StorySegment } from "../types";
+import { WordEntry, CEFRLevel, StorySegment, VerbConjugation } from "../types";
+import { logWordLookup } from "./analyticsService";
 
 /**
  * OuiOui AI - 中国区优化方案
@@ -11,21 +12,6 @@ import { WordEntry, CEFRLevel, StorySegment } from "../types";
 const API_KEY = process.env.API_KEY;
 const API_BASE_URL = "https://api.deepseek.com/v1";
 
-// --- 用户行为统计 ---
-const SUPABASE_URL = "https://zjjqclfmrxxfkynfmtha.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqanFjbGZtcnh4Zmt5bmZtdGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2NjI1NjcsImV4cCI6MjA4ODIzODU2N30.KL22O1-mvMWcdmnA74jTVSyxEcdgvBkG3PELsUWJSIo";
-
-const logWordLookup = (word: string, pos?: string) => {
-  fetch(`${SUPABASE_URL}/rest/v1/word_lookups`, {
-    method: 'POST',
-    headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ word, pos: pos || null })
-  }).catch(() => {}); // 静默失败，不影响主流程
-};
 
 // --- AI 请求封装 ---
 

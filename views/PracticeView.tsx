@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PenTool, Play, Pause, Save, Trash2, Clock, Download, FileText, Music, Sparkles, Info } from 'lucide-react';
 import { generateClozeStoryStream } from '../services/geminiService';
+import { logFeatureEvent } from '../services/analyticsService';
 import { useAppContext } from '../App';
 import { ClozeStory, SavedStory, StorySegment } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
@@ -89,6 +90,7 @@ const PracticeView: React.FC = () => {
 
   const handleGenerate = async () => {
     if (filteredItems.length === 0) return;
+    logFeatureEvent('story_generate');
     stopGlobalSpeech();
     setLoading(true);
     setClozeData({ title: "创作中...", segments: [] });

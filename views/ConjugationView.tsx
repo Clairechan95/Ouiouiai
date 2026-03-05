@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Languages, RefreshCw, Info, Check, Save, FileText, Clock, Trash2 } from 'lucide-react';
 import { useAppContext } from '../App';
 import { generateConjugationStoryStream } from '../services/geminiService';
+import { logFeatureEvent } from '../services/analyticsService';
 import { SavedStory } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
 
@@ -63,6 +64,7 @@ const ConjugationView: React.FC = () => {
 
   const handleGenerate = async (verbsToUse = selectedVerbs, tensesToUse = selectedTenses) => {
     if (verbsToUse.length === 0 || tensesToUse.length === 0) return;
+    logFeatureEvent('conjugation_generate');
     setActiveTab('create');
     setLoading(true);
     setStory({ title: '创作中...', segments: [] });
