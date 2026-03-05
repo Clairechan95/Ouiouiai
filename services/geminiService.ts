@@ -11,6 +11,22 @@ import { WordEntry, CEFRLevel, StorySegment } from "../types";
 const API_KEY = process.env.API_KEY;
 const API_BASE_URL = "https://api.deepseek.com/v1";
 
+// --- 用户行为统计 ---
+const SUPABASE_URL = "https://zjjqclfmrxxfkynfmtha.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqanFjbGZtcnh4Zmt5bmZtdGhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2NjI1NjcsImV4cCI6MjA4ODIzODU2N30.KL22O1-mvMWcdmnA74jTVSyxEcdgvBkG3PELsUWJSIo";
+
+const logWordLookup = (word: string, pos?: string) => {
+  fetch(`${SUPABASE_URL}/rest/v1/word_lookups`, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ word, pos: pos || null })
+  }).catch(() => {}); // 静默失败，不影响主流程
+};
+
 // --- AI 请求封装 ---
 
 const fetchDeepSeek = async (path: string, body: any) => {
@@ -87,9 +103,9 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
     });
     
     const result = JSON.parse(data.choices[0].message.content);
-    return {
+    const wordEntry: WordEntry = {
       id: Date.now().toString(),
-      text: result.correctText || text, // 使用纠正后的文本作为最终显示的单词
+      text: result.correctText || text,
       chineseDefinition: result.chineseDefinition,
       frenchDefinition: result.frenchDefinition,
       ipa: result.ipa,
@@ -106,6 +122,8 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
       imageUrls: [],
       createdAt: Date.now()
     };
+    logWordLookup(wordEntry.text, wordEntry.pos);
+    return wordEntry;
   } catch (err: any) {
     console.error("DeepSeek Lookup Error:", err);
     throw new Error(err.message || "查词服务暂时不可用，请检查网络。");
