@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OuiOui AI — 法语 AI 学习伴侣</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --indigo: #6366f1;
+      --indigo-light: #818cf8;
+      --indigo-dark: #4f46e5;
+      --pink: #ec4899;
+      --bg: #ffffff;
+      --bg-soft: #f8f8fc;
+      --text: #0f0f1a;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* NAV */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 64px;
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: 1.1rem; color: var(--text); text-decoration: none;
+    }
+    .nav-logo-icon {
+      width: 32px; height: 32px; background: var(--indigo);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 14px; font-weight: 900;
+    }
+    .nav-cta {
+      background: var(--text); color: white; border: none;
+      padding: 8px 20px; border-radius: 8px; font-size: 0.875rem;
+      font-weight: 600; cursor: pointer; text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .nav-cta:hover { opacity: 0.8; }
+
+    /* HERO */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 120px 2rem 80px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -50%; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 800px;
+      background: radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2);
+      color: var(--indigo); border-radius: 100px;
+      padding: 6px 16px; font-size: 0.8rem; font-weight: 600;
+      margin-bottom: 2rem; letter-spacing: 0.02em;
+    }
+    .hero-badge-dot {
+      width: 6px; height: 6px; background: var(--indigo);
+      border-radius: 50%; animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; } 50% { opacity: 0.3; }
+    }
+    .hero-french {
+      font-size: clamp(0.9rem, 2vw, 1.1rem);
+      color: var(--indigo-light); font-weight: 500;
+      letter-spacing: 0.08em; margin-bottom: 1.2rem;
+      font-style: italic;
+    }
+    .hero-title {
+      font-size: clamp(2.5rem, 6vw, 5rem);
+      font-weight: 900; line-height: 1.1;
+      letter-spacing: -0.03em; margin-bottom: 1.5rem;
+      max-width: 800px;
+    }
+    .hero-title .gradient {
+      background: linear-gradient(135deg, var(--indigo) 0%, var(--pink) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-sub {
+      font-size: clamp(1rem, 2vw, 1.2rem);
+      color: var(--text-muted); max-width: 520px;
+      margin: 0 auto 2.5rem; font-weight: 400; line-height: 1.7;
+    }
+    .hero-actions {
+      display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+    }
+    .btn-primary {
+      background: var(--indigo); color: white;
+      padding: 14px 32px; border-radius: 10px;
+      font-size: 1rem; font-weight: 700; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: all 0.2s; box-shadow: 0 4px 24px rgba(99,102,241,0.3);
+    }
+    .btn-primary:hover {
+      background: var(--indigo-dark); transform: translateY(-1px);
+      box-shadow: 0 8px 32px rgba(99,102,241,0.4);
+    }
+    .btn-secondary {
+      background: transparent; color: var(--text);
+      padding: 14px 32px; border-radius: 10px;
+      font-size: 1rem; font-weight: 600; text-decoration: none;
+      border: 1px solid var(--border);
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover { background: var(--bg-soft); border-color: #d1d5db; }
+
+    .hero-note {
+      margin-top: 1.5rem; font-size: 0.8rem; color: #9ca3af;
+    }
+
+    /* STATS */
+    .stats {
+      display: flex; justify-content: center; gap: 3rem;
+      padding: 3rem 2rem; border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-num {
+      font-size: 2rem; font-weight: 900; color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .stat-label { font-size: 0.875rem; color: var(--text-muted); margin-top: 4px; }
+
+    /* SECTION COMMON */
+    section { padding: 6rem 2rem; }
+    .section-inner { max-width: 1100px; margin: 0 auto; }
+    .section-tag {
+      display: inline-block; font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--indigo); margin-bottom: 1rem;
+    }
+    .section-title {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 900; letter-spacing: -0.02em;
+      line-height: 1.2; margin-bottom: 1rem;
+    }
+    .section-desc {
+      font-size: 1.05rem; color: var(--text-muted);
+      max-width: 500px; line-height: 1.7;
+    }
+
+    /* FEATURES */
+    .features { background: var(--bg-soft); }
+    .features-header { text-align: center; margin-bottom: 4rem; }
+    .features-header .section-desc { margin: 0 auto; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+    .feature-card {
+      background: white; border: 1px solid var(--border);
+      border-radius: 16px; padding: 2rem;
+      transition: all 0.2s; cursor: default;
+    }
+    .feature-card:hover {
+      border-color: rgba(99,102,241,0.3);
+      box-shadow: 0 8px 40px rgba(99,102,241,0.08);
+      transform: translateY(-2px);
+    }
+    .feature-icon {
+      width: 48px; height: 48px; border-radius: 12px;
+      background: rgba(99,102,241,0.1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.4rem; margin-bottom: 1.25rem;
+    }
+    .feature-title {
+      font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;
+    }
+    .feature-title .fr {
+      font-size: 0.75rem; font-weight: 500; color: var(--indigo-light);
+      font-style: italic; margin-left: 6px;
+    }
+    .feature-desc {
+      font-size: 0.9rem; color: var(--text-muted); line-height: 1.6;
+    }
+    .feature-tags {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 1rem;
+    }
+    .feature-tag {
+      font-size: 0.7rem; font-weight: 600;
+      background: rgba(99,102,241,0.08); color: var(--indigo);
+      padding: 3px 10px; border-radius: 100px;
+    }
+
+    /* HOW IT WORKS */
+    .steps-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 2rem; margin-top: 3rem;
+    }
+    .step { position: relative; }
+    .step-num {
+      font-size: 3rem; font-weight: 900; color: rgba(99,102,241,0.12);
+      line-height: 1; margin-bottom: 0.75rem; letter-spacing: -0.04em;
+    }
+    .step-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .step-desc { font-size: 0.9rem; color: var(--text-muted); line-height: 1.6; }
+
+    /* QUOTE */
+    .quote-section {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+      color: white; text-align: center;
+    }
+    .quote-text {
+      font-size: clamp(1.3rem, 3vw, 2rem);
+      font-style: italic; font-weight: 300;
+      max-width: 700px; margin: 0 auto 1.5rem;
+      line-height: 1.5; color: rgba(255,255,255,0.9);
+      letter-spacing: 0.01em;
+    }
+    .quote-source {
+      font-size: 0.85rem; color: rgba(255,255,255,0.5);
+      font-weight: 500; letter-spacing: 0.05em;
+    }
+
+    /* TECH */
+    .tech-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem; margin-top: 3rem;
+    }
+    .tech-card {
+      border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.5rem; display: flex; align-items: center; gap: 1rem;
+    }
+    .tech-card-icon {
+      width: 40px; height: 40px; border-radius: 10px;
+      background: var(--bg-soft); display: flex; align-items: center;
+      justify-content: center; font-size: 1.2rem; flex-shrink: 0;
+    }
+    .tech-card-name { font-weight: 700; font-size: 0.95rem; }
+    .tech-card-desc { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* CTA */
+    .cta-section { text-align: center; background: var(--bg-soft); }
+    .cta-box {
+      background: white; border: 1px solid var(--border);
+      border-radius: 24px; padding: 4rem 2rem; max-width: 640px; margin: 0 auto;
+      box-shadow: 0 2px 40px rgba(0,0,0,0.04);
+    }
+    .cta-french {
+      font-size: 0.9rem; color: var(--indigo-light);
+      font-style: italic; margin-bottom: 0.75rem;
+    }
+    .cta-title {
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-weight: 900; letter-spacing: -0.02em; margin-bottom: 0.75rem;
+    }
+    .cta-desc { color: var(--text-muted); margin-bottom: 2rem; font-size: 0.95rem; }
+
+    /* FOOTER */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem; text-align: center;
+      font-size: 0.8rem; color: var(--text-muted);
+    }
+    footer a { color: var(--indigo); text-decoration: none; }
+
+    /* MOBILE */
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      .stats { gap: 2rem; }
+      section { padding: 4rem 1.25rem; }
+      .hero { padding: 100px 1.25rem 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-logo-icon">O</div>
+    OuiOui AI
+  </a>
+  <a href="/" class="nav-cta">立即使用 →</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">
+    <div class="hero-badge-dot"></div>
+    现已上线 · 免费使用
+  </div>
+  <p class="hero-french">Apprenez le français avec l'intelligence artificielle</p>
+  <h1 class="hero-title">
+    学法语，<br/>
+    让 <span class="gradient">AI</span> 成为你的<br/>
+    私人语言老师
+  </h1>
+  <p class="hero-sub">
+    输入任何法语单词或中文，AI 即时解析词义、发音、变位与语境例句。专为中国学习者设计。
+  </p>
+  <div class="hero-actions">
+    <a href="/" class="btn-primary">开始学习 →</a>
+    <a href="#features" class="btn-secondary">了解功能</a>
+  </div>
+  <p class="hero-note">免费 · 无需注册 · 支持手机与电脑</p>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat">
+    <div class="stat-num">DeepSeek</div>
+    <div class="stat-label">顶级 AI 大模型驱动</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">A1 → C2</div>
+    <div class="stat-label">覆盖全 CEFR 级别</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">0 秒</div>
+    <div class="stat-label">缓存词汇即时加载</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">离线</div>
+    <div class="stat-label">生词本本地永久保存</div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="section-inner">
+    <div class="features-header">
+      <span class="section-tag">核心功能</span>
+      <h2 class="section-title">不只是词典，<br/>更是学习系统</h2>
+      <p class="section-desc">四大模块协同，覆盖法语学习从输入到输出的完整链路。</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🔍</div>
+        <div class="feature-title">智能查词 <span class="fr">Recherche intelligente</span></div>
+        <div class="feature-desc">输入法语或中文，AI 深度解析词义、词性、国际音标、法语定义与例句。自动识别变位形式，还原原形并高亮对应时态。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">音标</span>
+          <span class="feature-tag">变位识别</span>
+          <span class="feature-tag">阴阳性</span>
+          <span class="feature-tag">AI 配图</span>
+        </div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📖</div>
+        <div class="feature-title">生词本 <span class="fr">Carnet de vocabulaire</span></div>
+        <div class="feature-desc">一键收藏单词，自动生成闪卡。支持主题分类筛选，导出 CSV 直接导入 Anki，打造个人词库。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">闪卡复习</span>
+          <span class="feature-tag">Anki 导出</span>
+          <span class="feature-tag">主题分类</span>
+        </div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">✍️</div>
+        <div class="feature-title">创意听写 <span class="fr">Dictée créative</span></div>
+        <div class="feature-desc">从你的生词本中取词，由 DeepSeek 实时创作法语短文。本地语音朗读，填空挑战，检验听力与拼写能力。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">AI 生成</span>
+          <span class="feature-tag">本地语音</span>
+          <span class="feature-tag">填空练习</span>
+        </div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔤</div>
+        <div class="feature-title">变位练习 <span class="fr">Exercices de conjugaison</span></div>
+        <div class="feature-desc">选择动词和时态，AI 生成专项变位填空句子。覆盖直陈式、条件式、虚拟式等7大时态，针对性攻克法语变位难关。</div>
+        <div class="feature-tags">
+          <span class="feature-tag">7大时态</span>
+          <span class="feature-tag">个性化生成</span>
+          <span class="feature-tag">保存导出</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section>
+  <div class="section-inner">
+    <span class="section-tag">使用方式</span>
+    <h2 class="section-title">三步开始学习</h2>
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-title">输入词汇</div>
+        <div class="step-desc">直接在搜索框输入法语单词、句子，或中文词义均可。AI 自动纠正拼写并识别变位形式。</div>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-title">收藏积累</div>
+        <div class="step-desc">点击收藏，单词自动归入生词本。按主题分类，随时用闪卡复习，也可导出到 Anki。</div>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-title">练习输出</div>
+        <div class="step-desc">用创意听写和变位练习模块巩固所学，从被动认知到主动输出，全面提升法语能力。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- QUOTE -->
+<section class="quote-section">
+  <div class="section-inner">
+    <p class="quote-text">"Une langue différente est une vision différente de la vie."</p>
+    <p class="quote-source">— Federico Fellini &nbsp;·&nbsp; 不同的语言，是对生命不同的诠释</p>
+  </div>
+</section>
+
+<!-- TECH -->
+<section>
+  <div class="section-inner">
+    <span class="section-tag">技术架构</span>
+    <h2 class="section-title">专为中国用户<br/>优化的技术栈</h2>
+    <p class="section-desc">无需翻墙，全程直连国内可访问的 AI 服务。</p>
+    <div class="tech-grid">
+      <div class="tech-card">
+        <div class="tech-card-icon">🧠</div>
+        <div>
+          <div class="tech-card-name">DeepSeek-V3</div>
+          <div class="tech-card-desc">词汇解析 · 故事生成 · AI 答疑</div>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-icon">🎨</div>
+        <div>
+          <div class="tech-card-name">FLUX.1-dev</div>
+          <div class="tech-card-desc">AI 词汇配图生成</div>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-icon">🔊</div>
+        <div>
+          <div class="tech-card-name">Web Speech API</div>
+          <div class="tech-card-desc">本地法语语音合成，零延迟</div>
+        </div>
+      </div>
+      <div class="tech-card">
+        <div class="tech-card-icon">💾</div>
+        <div>
+          <div class="tech-card-name">本地缓存</div>
+          <div class="tech-card-desc">查过的词即时加载，离线可用</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section">
+  <div class="section-inner">
+    <div class="cta-box">
+      <p class="cta-french">Commençons ensemble !</p>
+      <h2 class="cta-title">现在开始学法语</h2>
+      <p class="cta-desc">免费使用，无需注册。支持手机与电脑，随时随地学习。</p>
+      <a href="/" class="btn-primary" style="font-size:1.05rem; padding: 16px 40px;">立即开始 →</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <p>© 2025 OuiOui AI &nbsp;·&nbsp; Fait avec ❤️ pour les apprenants de français &nbsp;·&nbsp;
+  <a href="/">进入应用</a></p>
+</footer>
+
+</body>
+</html>
