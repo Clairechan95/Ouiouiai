@@ -14,186 +14,153 @@ export interface AudioPlayerHandle {
   stop: () => void;
 }
 
+// Check if Web Speech API is available
+const hasSpeechSynthesis = (): boolean => {
+  return typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+};
+
 const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, className = "", autoPlay = false, onPlay, onEnded }, ref) => {
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  
-  // 使用 ref 跟踪当前播放状态，防止并发冲突
-  const isSpeakingRef = useRef(false);
-  const voicesLoadedRef = useRef(false);
+  const [supported, setSupported] = useState(true);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const loadingRef = useRef(false); // Use ref to avoid stale closure in timeouts
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useImperativeHandle(ref, () => ({
     play: () => playAudio(),
     stop: () => stopAudio()
   }));
 
-  // 初始化语音列表
   useEffect(() => {
-    const loadVoices = () => {
-      const availableVoices = window.speechSynthesis.getVoices();
-      setVoices(availableVoices);
-      voicesLoadedRef.current = true;
-      console.log('🎵 语音加载完成，可用语音列表:', availableVoices.map(v => ({ name: v.name, lang: v.lang })));
-    };
-
-    // 立即获取一次
-    loadVoices();
-
-    // 监听语音列表变化
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-
-    // 额外的兼容处理：在某些浏览器中，第一次调用getVoices()可能返回空数组
-    // 所以我们需要触发一次语音合成来初始化语音引擎
-    if ('speechSynthesis' in window) {
-      console.log('🎵 初始化语音合成引擎');
-      const dummyUtterance = new SpeechSynthesisUtterance('');
-      dummyUtterance.lang = 'fr-FR';
-      window.speechSynthesis.cancel();
-      // 延迟一下再次尝试加载语音，确保引擎已经初始化
-      setTimeout(() => {
-        loadVoices();
-      }, 100);
+    if (!hasSpeechSynthesis()) {
+      setSupported(false);
+      return;
     }
 
+    const loadVoices = () => {
+      voicesRef.current = window.speechSynthesis.getVoices();
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    // Retry after a short delay — some browsers (Android Chrome) load voices asynchronously
+    setTimeout(loadVoices, 500);
+
     return () => {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.onvoiceschanged = null;
+      if (hasSpeechSynthesis()) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
   useEffect(() => {
-     if (autoPlay && text) playAudio();
+    if (autoPlay && text) playAudio();
   }, [autoPlay, text]);
 
   const stopAudio = () => {
-    window.speechSynthesis.cancel();
+    if (hasSpeechSynthesis()) window.speechSynthesis.cancel();
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    loadingRef.current = false;
+    setLoading(false);
     setPlaying(false);
-    isSpeakingRef.current = false;
   };
 
   const playAudio = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    
-    console.log('🎵 playAudio 被调用，参数:', {
-      text,
-      playing,
-      voicesLength: voices.length,
-      isSpeakingRef: isSpeakingRef.current
-    });
-    
-    if (playing) {
-      console.log('🎵 当前正在播放，停止');
-      stopAudio();
-      return;
-    }
 
-    // 检查文本是否为空
-    if (!text || text.trim() === '') {
-      console.warn('🎵 文本为空，无法播放');
-      setLoading(false);
+    if (playing) { stopAudio(); return; }
+    if (!text?.trim()) return;
+
+    if (!hasSpeechSynthesis()) {
+      setSupported(false);
       return;
     }
 
     onPlay?.();
     setLoading(true);
+    loadingRef.current = true;
 
-    // 确保取消之前的播放
     window.speechSynthesis.cancel();
 
     try {
-      // 检查浏览器是否支持语音合成
-      if (!('speechSynthesis' in window)) {
-        console.error('🎵 浏览器不支持语音合成');
-        setLoading(false);
-        return;
-      }
-
       const utterance = new SpeechSynthesisUtterance(text);
-      
-      // 设置语言为法语
       utterance.lang = 'fr-FR';
-      utterance.rate = 0.85; // 语速稍慢，方便学习
+      utterance.rate = 0.85;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      // 尝试找到法语语音，更宽松的匹配条件
-      let selectedVoice = voices.find(v => 
-        v.lang.includes('fr-FR') || 
-        v.lang.includes('fr_FR') || 
+      // Find a French voice, fall back gracefully
+      const voices = voicesRef.current;
+      const frVoice = voices.find(v =>
         v.lang.startsWith('fr') ||
         v.name.toLowerCase().includes('french') ||
         v.name.toLowerCase().includes('français')
       );
-      
-      // 如果找不到法语语音，尝试使用任何可用的语音
-      if (!selectedVoice && voices.length > 0) {
-        selectedVoice = voices[0];
-        console.warn('🎵 未找到法语语音，使用第一个可用语音:', selectedVoice.name, selectedVoice.lang);
-      }
-      
-      if (selectedVoice) {
-        utterance.voice = selectedVoice;
-        console.log('🎵 使用语音:', selectedVoice.name, selectedVoice.lang);
-      } else {
-        console.warn('🎵 未找到任何语音，使用默认语音引擎');
-      }
+      if (frVoice) utterance.voice = frVoice;
 
       utterance.onstart = () => {
-        console.log('🎵 开始播放语音:', text);
+        loadingRef.current = false;
         setLoading(false);
         setPlaying(true);
-        isSpeakingRef.current = true;
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
       };
 
       utterance.onend = () => {
-        console.log('🎵 语音播放结束');
         setPlaying(false);
-        isSpeakingRef.current = false;
+        loadingRef.current = false;
         onEnded?.();
       };
 
       utterance.onerror = (event) => {
-        console.error('🎵 语音播放错误:', event.error || '未知错误', event);
+        // 'interrupted' is expected when we cancel; ignore it
+        if (event.error === 'interrupted' || event.error === 'canceled') return;
+        loadingRef.current = false;
         setLoading(false);
         setPlaying(false);
-        isSpeakingRef.current = false;
       };
 
-      // 播放语音，添加额外的错误捕获
-      console.log('🎵 请求播放语音:', text);
-      
-      // 在某些浏览器中，speak()方法可能会抛出异常
-      try {
-        window.speechSynthesis.speak(utterance);
-      } catch (speakError) {
-        console.error('🎵 speak() 方法调用失败:', speakError);
-        // 尝试使用更简单的配置重试
-        console.log('🎵 使用简化配置重试播放');
-        const simpleUtterance = new SpeechSynthesisUtterance(text);
-        simpleUtterance.onstart = utterance.onstart;
-        simpleUtterance.onend = utterance.onend;
-        simpleUtterance.onerror = utterance.onerror;
-        window.speechSynthesis.speak(simpleUtterance);
-      }
-      
-      // 添加超时处理，防止加载时间过长
-      setTimeout(() => {
-        if (loading) {
-          console.warn('🎵 语音加载超时，取消播放');
-          stopAudio();
+      window.speechSynthesis.speak(utterance);
+
+      // Android fix: some browsers never fire onstart. After 3s, assume it started.
+      // Use ref to get current value instead of stale closure.
+      timeoutRef.current = setTimeout(() => {
+        if (loadingRef.current) {
+          loadingRef.current = false;
           setLoading(false);
+          // Mark as playing — onend will eventually fire, or user can tap to stop
+          setPlaying(true);
         }
-      }, 5000);
+      }, 3000);
+
+      // Hard timeout: if nothing happens after 8s, give up
+      setTimeout(() => {
+        if (loadingRef.current) stopAudio();
+      }, 8000);
+
     } catch (error) {
-      console.error('🎵 播放音频时发生错误:', error);
+      console.error('TTS error:', error);
+      loadingRef.current = false;
       setLoading(false);
       setPlaying(false);
     }
   };
 
+  if (!supported) {
+    return (
+      <button
+        disabled
+        title="当前浏览器不支持语音播放"
+        className={`p-2 rounded-full opacity-30 cursor-not-allowed flex items-center justify-center ${className}`}
+      >
+        <Volume2 className="w-5 h-5" />
+      </button>
+    );
+  }
+
   return (
-    <button 
+    <button
       onClick={playAudio}
       disabled={loading}
       title="点击发音"
@@ -210,4 +177,5 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, cla
   );
 });
 
+AudioPlayer.displayName = 'AudioPlayer';
 export default AudioPlayer;

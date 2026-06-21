@@ -1,8 +1,30 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../App';
-import { Repeat, ArrowRight, BookOpen, Trash2, ArrowLeft, Download, FileSpreadsheet } from 'lucide-react';
+import { Repeat, BookOpen, Trash2, ArrowLeft, ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import AudioPlayer from '../components/AudioPlayer';
+
+// 法语普通词汇应首字母小写（专有名词除外）
+const lcFirst = (text: string, pos?: string): string => {
+  if (!text) return text;
+  const p = (pos || '').toLowerCase();
+  if (p.includes('prop') || p.includes('n.p')) return text; // 专有名词保留
+  return text.charAt(0).toLowerCase() + text.slice(1);
+};
+
+// 从词性字符串提取阴阳性冠词标签（支持省音：元音或哑音h开头）
+const getGenderBadge = (pos?: string, word?: string) => {
+  if (!pos) return null;
+  const p = pos.toLowerCase();
+  const hasMasc = p.includes('n.m');
+  const hasFem = p.includes('n.f');
+  if (!hasMasc && !hasFem) return null;
+  const needsElision = word ? /^[aâàæeéèêëiîïoôœuûüh]/i.test(word) : false;
+  if (hasMasc && hasFem) return { article: needsElision ? "l'" : 'le/la', cls: 'bg-purple-50 text-purple-600 border border-purple-100' };
+  if (hasMasc) return { article: needsElision ? "l'" : 'le', cls: 'bg-blue-50 text-blue-600 border border-blue-100' };
+  if (hasFem) return { article: needsElision ? "l'" : 'la', cls: 'bg-rose-50 text-rose-600 border border-rose-100' };
+  return null;
+};
 
 const NotebookView: React.FC = () => {
   const { notebook, removeFromNotebook } = useAppContext();
@@ -11,30 +33,42 @@ const NotebookView: React.FC = () => {
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const touchStartX = useRef<number>(0);
 
   const allThemes = Array.from(new Set(notebook.flatMap(item => item.themes)));
   const filteredItems = selectedTheme === 'All' ? notebook : notebook.filter(item => item.themes.includes(selectedTheme));
 
-  const nextCard = () => {
+  const navigate = (dir: 1 | -1) => {
     setIsFlipped(false);
-    setTimeout(() => {
-        setCurrentCardIndex((prev) => (prev + 1) % filteredItems.length);
-    }, 200);
+    setTimeout(() => setCurrentCardIndex(prev => (prev + dir + filteredItems.length) % filteredItems.length), 180);
   };
+
+  // 键盘左右键导航
+  useEffect(() => {
+    if (viewMode !== 'flashcard') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight') navigate(1);
+      else if (e.key === 'ArrowLeft') navigate(-1);
+      else if (e.key === ' ' || e.key === 'Enter') setIsFlipped(f => !f);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [viewMode, filteredItems.length]);
 
   // --- 导出逻辑 ---
   const exportToCSV = () => {
     if (notebook.length === 0) return;
     
-    // CSV 表头
-    const headers = ["法语单词", "词性", "音标", "中文释义", "法文释义", "例句(FR)", "例句(CN)", "主题标签"];
-    
+    // CSV 表头（图片列使用 Anki 支持的 <img src> HTML 语法）
+    const headers = ["法语单词", "词性", "音标", "图片", "中文释义", "法文释义", "例句(FR)", "例句(CN)", "主题标签"];
+
     const rows = notebook.map(item => [
       item.text,
       item.pos || "",
       item.ipa || "",
+      item.imageUrls?.[0] ? `<img src="${item.imageUrls[0]}">` : "",
       item.chineseDefinition,
-      item.frenchDefinition.replace(/,/g, "，"), 
+      item.frenchDefinition.replace(/,/g, "，"),
       item.examples?.[0]?.french.replace(/,/g, "，") || "",
       item.examples?.[0]?.chinese.replace(/,/g, "，") || "",
       item.themes.join(";")
@@ -69,46 +103,90 @@ const NotebookView: React.FC = () => {
   if (viewMode === 'flashcard' && filteredItems.length > 0) {
     const card = filteredItems[currentCardIndex];
     return (
-      <div className="h-full flex flex-col p-6 bg-slate-50 min-h-[85vh]">
-        <button onClick={() => setViewMode('list')} className="self-start flex items-center gap-3 text-gray-400 hover:text-primary font-black mb-10 transition-colors">
-          <ArrowLeft className="w-6 h-6" /> 返回列表
-        </button>
-        
-        <div className="flex-1 flex items-center justify-center max-w-2xl mx-auto w-full">
-          <div className="relative w-full aspect-[3/4] cursor-pointer group" onClick={() => setIsFlipped(!isFlipped)}>
-            <div className={`card-inner relative w-full h-full duration-700 transition-transform`} style={{transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'}}>
-                {/* 正面 */}
-                <div className="card-front absolute inset-0 bg-white rounded-[4rem] shadow-2xl p-6 sm:p-12 flex flex-col items-center justify-center border border-gray-100" style={{backfaceVisibility: 'hidden'}}>
-                  <span className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6 sm:mb-12">Cliquez pour retourner</span>
-                  {card.imageUrls?.[0] ? (
-                    <img src={card.imageUrls[0]} alt="visual" className="w-32 h-32 sm:w-56 sm:h-56 object-cover rounded-[2rem] sm:rounded-[3rem] mb-6 sm:mb-10 shadow-2xl shadow-primary/10" />
-                  ) : (
-                    <div className="w-32 h-32 sm:w-56 sm:h-56 bg-indigo-50 rounded-[2rem] sm:rounded-[3rem] mb-6 sm:mb-10 flex items-center justify-center text-primary/50"><BookOpen className="w-12 h-12 sm:w-20 sm:h-20" /></div>
-                  )}
-                  <h2 className="text-3xl sm:text-5xl font-black text-gray-800 text-center mb-4 sm:mb-6">{card.text}</h2>
-                  <div className="flex items-center gap-3 sm:gap-6 flex-wrap justify-center">
-                    <AudioPlayer text={card.text} className="bg-primary/10 text-primary w-12 h-12 sm:w-16 sm:h-16" />
-                    <p className="text-gray-500 font-mono text-base sm:text-xl italic">{card.ipa}</p>
-                  </div>
-                </div>
-                {/* 背面 */}
-                <div className="card-back absolute inset-0 bg-primary text-white rounded-[4rem] shadow-2xl p-6 sm:p-12 flex flex-col items-center justify-center overflow-hidden" style={{backfaceVisibility: 'hidden', transform: 'rotateY(180deg)'}}>
-                  <h3 className="text-2xl sm:text-4xl font-black mb-3 sm:mb-6 text-center leading-tight">{card.chineseDefinition}</h3>
-                  <p className="text-white/90 text-center mb-4 sm:mb-8 text-sm sm:text-xl font-medium leading-relaxed">{card.frenchDefinition}</p>
-                  <div className="bg-white/10 p-4 sm:p-8 rounded-[1.5rem] sm:rounded-[2.5rem] w-full border border-white/10">
-                    <p className="font-bold text-center text-sm sm:text-xl mb-2 sm:mb-4 leading-relaxed italic">"{card.examples[0]?.french}"</p>
-                    <p className="text-white/80 text-center text-xs sm:text-base font-medium">{card.examples[0]?.chinese}</p>
-                  </div>
-                </div>
-            </div>
-          </div>
+      <div className="h-full flex flex-col px-4 py-6 bg-slate-50 min-h-[85vh]">
+        {/* 顶栏 */}
+        <div className="flex items-center justify-between max-w-2xl mx-auto w-full mb-8">
+          <button onClick={() => setViewMode('list')} className="flex items-center gap-2 text-gray-400 hover:text-primary font-black transition-colors">
+            <ArrowLeft className="w-5 h-5" /> 返回
+          </button>
+          <span className="text-gray-300 font-black tracking-widest text-lg">
+            {currentCardIndex + 1} <span className="text-gray-200">/</span> {filteredItems.length}
+          </span>
+          <div className="w-16" />{/* 占位，保持居中 */}
         </div>
 
-        <div className="flex justify-between items-center max-w-2xl mx-auto w-full px-6 sm:px-10 py-6 sm:py-12">
-           <div className="text-gray-400 font-black tracking-widest text-xl sm:text-2xl">{currentCardIndex + 1} <span className="text-gray-200">/</span> {filteredItems.length}</div>
-           <button onClick={nextCard} className="bg-gray-900 text-white p-5 sm:p-8 rounded-full shadow-2xl hover:scale-110 active:scale-95 transition-all">
-             <ArrowRight className="w-7 h-7 sm:w-10 sm:h-10" />
-           </button>
+        {/* 词卡 + 左右箭头 */}
+        <div className="flex-1 flex items-center gap-3 sm:gap-6 max-w-3xl mx-auto w-full">
+          {/* 左箭头 */}
+          <button
+            onClick={() => navigate(-1)}
+            className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-white rounded-full shadow-lg border border-gray-100 flex items-center justify-center text-gray-400 hover:text-primary hover:shadow-xl hover:border-primary/20 active:scale-90 transition-all"
+          >
+            <ChevronLeft className="w-6 h-6 sm:w-7 sm:h-7" />
+          </button>
+
+          {/* 词卡主体 */}
+          <div
+            className="flex-1 relative aspect-[3/4] cursor-pointer"
+            onClick={() => setIsFlipped(f => !f)}
+            onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
+            onTouchEnd={e => {
+              const dx = e.changedTouches[0].clientX - touchStartX.current;
+              if (Math.abs(dx) > 50) navigate(dx < 0 ? 1 : -1);
+              else setIsFlipped(f => !f);
+            }}
+          >
+            <div
+              className="relative w-full h-full duration-700 transition-transform"
+              style={{ transformStyle: 'preserve-3d', transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}
+            >
+              {/* 正面 */}
+              <div className="absolute inset-0 bg-white rounded-[3rem] shadow-2xl p-6 sm:p-10 flex flex-col items-center justify-center border border-gray-100" style={{ backfaceVisibility: 'hidden' }}>
+                <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-6">点击翻转 · 左右滑动切换</span>
+                {card.imageUrls?.[0] ? (
+                  <img src={card.imageUrls[0]} alt="visual" className="w-28 h-28 sm:w-44 sm:h-44 object-cover rounded-[2rem] mb-5 shadow-xl shadow-primary/10" />
+                ) : (
+                  <div className="w-28 h-28 sm:w-44 sm:h-44 bg-indigo-50 rounded-[2rem] mb-5 flex items-center justify-center text-primary/40"><BookOpen className="w-10 h-10 sm:w-16 sm:h-16" /></div>
+                )}
+                <div className="flex flex-col items-center mb-4">
+                  {(() => { const g = getGenderBadge(card.pos, card.text); return g ? <span className={`text-sm font-black px-3 py-1 rounded-full mb-2 ${g.cls}`}>{g.article}</span> : null; })()}
+                  <h2 className="text-3xl sm:text-5xl font-black text-gray-800 text-center">{lcFirst(card.text, card.pos)}</h2>
+                </div>
+                <div className="flex items-center gap-3 sm:gap-5 flex-wrap justify-center">
+                  <AudioPlayer text={card.text} className="bg-primary/10 text-primary w-11 h-11 sm:w-14 sm:h-14" />
+                  <p className="text-gray-400 font-mono text-sm sm:text-lg italic">{card.ipa}</p>
+                </div>
+              </div>
+              {/* 背面 */}
+              <div className="absolute inset-0 bg-primary text-white rounded-[3rem] shadow-2xl p-6 sm:p-10 flex flex-col items-center justify-center overflow-hidden" style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                <h3 className="text-2xl sm:text-4xl font-black mb-3 sm:mb-5 text-center leading-tight">{card.chineseDefinition}</h3>
+                <p className="text-white/85 text-center mb-4 sm:mb-7 text-sm sm:text-lg font-medium leading-relaxed">{card.frenchDefinition}</p>
+                <div className="bg-white/10 p-4 sm:p-6 rounded-[1.5rem] w-full border border-white/10">
+                  <p className="font-bold text-center text-sm sm:text-lg mb-2 leading-relaxed italic">"{card.examples[0]?.french}"</p>
+                  <p className="text-white/75 text-center text-xs sm:text-sm font-medium">{card.examples[0]?.chinese}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 右箭头 */}
+          <button
+            onClick={() => navigate(1)}
+            className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-white rounded-full shadow-lg border border-gray-100 flex items-center justify-center text-gray-400 hover:text-primary hover:shadow-xl hover:border-primary/20 active:scale-90 transition-all"
+          >
+            <ChevronRight className="w-6 h-6 sm:w-7 sm:h-7" />
+          </button>
+        </div>
+
+        {/* 进度点 */}
+        <div className="flex justify-center gap-1.5 pt-6 pb-2 max-w-xs mx-auto w-full overflow-hidden">
+          {filteredItems.length <= 20 && filteredItems.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => { setIsFlipped(false); setCurrentCardIndex(i); }}
+              className={`h-1.5 rounded-full transition-all ${i === currentCardIndex ? 'w-6 bg-primary' : 'w-1.5 bg-gray-200 hover:bg-gray-300'}`}
+            />
+          ))}
         </div>
       </div>
     );
@@ -163,10 +241,12 @@ const NotebookView: React.FC = () => {
             <div key={item.id} className="group bg-white border border-gray-100 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 flex flex-col gap-5 sm:gap-6 hover:shadow-2xl hover:shadow-primary/5 transition-all hover:-translate-y-2 relative overflow-hidden">
               <div className="flex items-start justify-between">
                 <div>
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="font-black text-2xl sm:text-3xl text-gray-800">{item.text}</span>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-black text-2xl sm:text-3xl text-gray-800">{lcFirst(item.text, item.pos)}</span>
                     <AudioPlayer text={item.text} className="w-10 h-10 p-2 text-gray-300 hover:text-primary transition-colors" />
+                    {(() => { const g = getGenderBadge(item.pos, item.text); return g ? <span className={`text-xs font-black px-2 py-0.5 rounded-full ${g.cls}`}>{g.article}</span> : null; })()}
                   </div>
+                  {item.ipa && <p className="text-gray-400 font-mono text-sm mb-1">{item.ipa}</p>}
                   <p className="text-primary font-black text-lg sm:text-xl">{item.chineseDefinition}</p>
                 </div>
                 <button 

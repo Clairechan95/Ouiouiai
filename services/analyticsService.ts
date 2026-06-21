@@ -35,3 +35,23 @@ export const logFeatureEvent = (eventType: 'story_generate' | 'conjugation_gener
     body: JSON.stringify({ event_type: eventType, session_id: getSessionId() })
   }).catch(() => {});
 };
+
+// 记录错题
+interface WrongAnswerLog {
+  source_type: 'conjugation' | 'cloze';
+  answer: string;
+  user_answer: string;
+  infinitive?: string;
+  tense?: string;
+  theme?: string;
+}
+
+export const logWrongAnswers = (items: WrongAnswerLog[]) => {
+  const session_id = getSessionId();
+  const rows = items.map(item => ({ ...item, session_id }));
+  fetch(`${SUPABASE_URL}/rest/v1/wrong_answers`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'Prefer': 'return=minimal' },
+    body: JSON.stringify(rows)
+  }).catch(() => {});
+};

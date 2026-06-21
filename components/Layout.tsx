@@ -1,20 +1,36 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Book, PenTool, GraduationCap, Languages } from 'lucide-react';
+import { Search, Book, PenTool, GraduationCap, Languages, AlertCircle, LogIn, LogOut, User } from 'lucide-react';
 import { useAppContext } from '../App';
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const { notebook } = useAppContext();
+  const { notebook, wrongAnswers, user, signOut } = useAppContext();
+  const unmasteredCount = wrongAnswers.filter(w => !w.mastered).length;
+
+  // 预热浏览器 TTS 引擎，减少首次播放延迟/卡顿
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return;
+    // 先加载语音列表
+    window.speechSynthesis.getVoices();
+    // 用零音量静默发言来初始化引擎
+    const warmup = new SpeechSynthesisUtterance(' ');
+    warmup.volume = 0;
+    warmup.rate = 2;
+    window.speechSynthesis.speak(warmup);
+    const t = setTimeout(() => window.speechSynthesis.cancel(), 300);
+    return () => clearTimeout(t);
+  }, []);
   const todayStart = new Date().setHours(0, 0, 0, 0);
   const todayCount = notebook.filter(item => item.createdAt >= todayStart).length;
 
   const navItems = [
-    { path: '/', icon: Search, label: '智能查词' },
-    { path: '/notebook', icon: Book, label: '生词本' },
-    { path: '/conjugation', icon: Languages, label: '变位练习' },
-    { path: '/practice', icon: PenTool, label: '创意听写' },
+    { path: '/', icon: Search, label: '智能查词', badge: 0 },
+    { path: '/notebook', icon: Book, label: '生词本', badge: 0 },
+    { path: '/conjugation', icon: Languages, label: '变位练习', badge: 0 },
+    { path: '/practice', icon: PenTool, label: '创意听写', badge: 0 },
+    { path: '/wrong-answers', icon: AlertCircle, label: '错题本', badge: unmasteredCount },
   ];
 
   return (
@@ -36,12 +52,19 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 key={item.path}
                 to={item.path}
                 className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 group ${
-                  isActive 
-                  ? 'bg-primary text-white shadow-md shadow-primary/20' 
+                  isActive
+                  ? 'bg-primary text-white shadow-md shadow-primary/20'
                   : 'text-gray-500 hover:bg-gray-50 hover:text-primary'
                 }`}
               >
-                <item.icon className={`w-5 h-5 ${isActive ? '' : 'group-hover:scale-110 transition-transform'}`} />
+                <div className="relative">
+                  <item.icon className={`w-5 h-5 ${isActive ? '' : 'group-hover:scale-110 transition-transform'}`} />
+                  {item.badge > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </div>
                 <span className="font-semibold">{item.label}</span>
               </Link>
             );
@@ -54,17 +77,72 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <p className="text-sm text-indigo-900 font-medium">今天已收藏 {todayCount} 个新词</p>
           </div>
         </div>
+
+        {/* User section */}
+        <div className="px-4 pb-6 border-t border-gray-100 pt-4">
+          {user ? (
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
+                <User className="w-4 h-4 text-primary" />
+              </div>
+              <span className="text-xs text-gray-500 flex-1 truncate">{user.email}</span>
+              <button
+                onClick={signOut}
+                title="退出登录"
+                className="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <Link
+              to="/auth"
+              className="flex items-center gap-2 w-full px-4 py-2.5 bg-primary/5 hover:bg-primary/10 text-primary rounded-xl transition-all"
+            >
+              <LogIn className="w-4 h-4" />
+              <span className="text-sm font-bold">登录 / 注册</span>
+            </Link>
+          )}
+        </div>
       </aside>
 
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 flex flex-col relative overflow-x-hidden">
+        {/* Mobile Header */}
+        <div className="md:hidden flex items-center justify-between px-4 pt-4 pb-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-md shadow-primary/20">
+              <GraduationCap className="text-white w-5 h-5" />
+            </div>
+            <span className="font-bold text-gray-800">OuiOui AI</span>
+          </div>
+          {user ? (
+            <button
+              onClick={signOut}
+              className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 hover:bg-red-50 hover:text-red-500 px-3 py-1.5 rounded-full transition-colors"
+            >
+              <User className="w-3 h-3" />
+              <span className="max-w-[80px] truncate">{user.email?.split('@')[0]}</span>
+              <LogOut className="w-3 h-3" />
+            </button>
+          ) : (
+            <Link
+              to="/auth"
+              className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-full font-bold transition-colors"
+            >
+              <LogIn className="w-3 h-3" />
+              登录
+            </Link>
+          )}
+        </div>
+
         <div className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10">
           {children}
         </div>
       </main>
 
       {/* Mobile Bottom Navigation (Visible only on small screens) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 py-3 px-8 flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pt-3 px-8 pb-3 mobile-nav-safe flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
@@ -75,7 +153,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 isActive ? 'text-primary scale-110' : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              <item.icon className={`w-6 h-6 ${isActive ? 'fill-current' : ''}`} />
+              <div className="relative">
+                <item.icon className={`w-6 h-6 ${isActive ? 'fill-current' : ''}`} />
+                {item.badge > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-bold tracking-wide">{item.label}</span>
             </Link>
           );

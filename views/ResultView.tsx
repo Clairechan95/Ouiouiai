@@ -1,35 +1,61 @@
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, AlertCircle, Globe, ShieldAlert, Layers } from 'lucide-react';
+import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, ShieldAlert, Layers } from 'lucide-react';
 import { useAppContext } from '../App';
-import { lookupWord, lookupConjugations, generateWordImages, chatWithWordContext } from '../services/geminiService';
+import { lookupWordStreaming, lookupConjugations, generateWordImages, chatWithWordContext, PartialWordData } from '../services/geminiService';
 import { storage } from '../services/storageService';
-import { WordEntry, ChatMessage, GenderForms } from '../types';
+import { WordEntry, ChatMessage } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
+
+const FRENCH_TIPS = [
+  { quote: "Petit à petit, l'oiseau fait son nid.", author: "Proverbe français", chinese: "一步一步，小鸟也能筑好巢。" },
+  { quote: "Mieux vaut tard que jamais.", author: "Proverbe français", chinese: "亡羊补牢，犹未为晚。" },
+  { quote: "L'appétit vient en mangeant.", author: "François Rabelais", chinese: "越做越有劲，熟能生巧。" },
+  { quote: "Une langue différente est une vision différente de la vie.", author: "Federico Fellini", chinese: "不同的语言，是对生命不同的诠释。" },
+  { quote: "Qui n'avance pas, recule.", author: "Proverbe français", chinese: "不进则退。" },
+  { quote: "Les langues sont la clé du monde.", author: "Voltaire", chinese: "语言是打开世界的钥匙。" },
+  { quote: "Chaque jour est une nouvelle chance.", author: "Proverbe français", chinese: "每一天都是新的机会。" },
+  { quote: "Il n'y a pas de honte à apprendre.", author: "Proverbe français", chinese: "学习从不是一件羞耻的事。" },
+];
 
 const ResultView: React.FC = () => {
   const { query } = useParams<{ query: string }>();
   const navigate = useNavigate();
   const { currentLevel, addToNotebook, updateNotebookImages, notebook, addRecentSearch } = useAppContext();
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<WordEntry | null>(null);
+  const [partialData, setPartialData] = useState<PartialWordData | null>(null);
   const [images, setImages] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [conjLoading, setConjLoading] = useState(false);
-  
+  const [tipIndex, setTipIndex] = useState(0);
+  const [loadingStep, setLoadingStep] = useState(0);
+
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
+  const decodedQuery = query ? decodeURIComponent(query) : '';
+
+  // Rotate tips and advance loading steps during initial loading
+  useEffect(() => {
+    if (!loading) return;
+    const tipTimer = setInterval(() => setTipIndex(i => (i + 1) % FRENCH_TIPS.length), 3000);
+    const stepTimers = [
+      setTimeout(() => setLoadingStep(1), 1500),
+      setTimeout(() => setLoadingStep(2), 3500),
+      setTimeout(() => setLoadingStep(3), 6000),
+    ];
+    return () => { clearInterval(tipTimer); stepTimers.forEach(clearTimeout); };
+  }, [loading]);
+
   useEffect(() => {
     if (query) {
-      const decodedQuery = decodeURIComponent(query);
       addRecentSearch(decodedQuery);
-      
       const cached = storage.getCachedWord(decodedQuery);
       if (cached) {
         setData(cached);
@@ -47,33 +73,36 @@ const ResultView: React.FC = () => {
 
   const loadData = async (text: string) => {
     setLoading(true);
+    setPartialData(null);
+    setLoadingStep(0);
     setError(null);
     try {
-      // Step 1: 查词
-      const wordData = await lookupWord(text, currentLevel);
-      setData(wordData);
-      storage.saveWordToCache(wordData); // 立即缓存，确保最近搜索可离线加载
+      for await (const { partial, complete } of lookupWordStreaming(text, currentLevel)) {
+        if (!complete) {
+          setPartialData(prev => ({ ...prev, ...partial }));
+        } else {
+          setData(complete);
+          setPartialData(null);
+          storage.saveWordToCache(complete);
 
-      // 变位表异步加载
-      if (wordData.isVerb || (wordData.pos && wordData.pos.startsWith('v'))) {
-        setConjLoading(true);
-        const verbInfinitive = wordData.detectedForm?.infinitive || wordData.text;
-        lookupConjugations(verbInfinitive, wordData.detectedForm?.tense).then(conjs => {
-          if (conjs.length > 0) {
-            setData(prev => prev ? { ...prev, conjugations: conjs } : prev);
+          if (complete.isVerb || (complete.pos && complete.pos.startsWith('v'))) {
+            setConjLoading(true);
+            const verbInfinitive = complete.detectedForm?.infinitive || complete.text;
+            lookupConjugations(verbInfinitive, complete.detectedForm?.tense).then(conjs => {
+              if (conjs.length > 0) setData(prev => prev ? { ...prev, conjugations: conjs } : prev);
+              setConjLoading(false);
+            });
           }
-          setConjLoading(false);
-        });
-      }
 
-      // 图片生成（后台异步，不阻塞主流程）
-      generateWordImages(wordData.text, wordData.imageKeyword || '').then(urls => {
-        if (urls.length > 0) {
-          setImages(urls);
-          storage.saveWordToCache({ ...wordData, imageUrls: urls }); // 图片完成后更新缓存
-          updateNotebookImages(wordData.id, urls);
+          generateWordImages(complete.text, complete.imageKeyword || '').then(urls => {
+            if (urls.length > 0) {
+              setImages(urls);
+              storage.saveWordToCache({ ...complete, imageUrls: urls });
+              updateNotebookImages(complete.id, urls);
+            }
+          });
         }
-      });
+      }
     } catch (err: any) {
       setError(err.message || "请求 AI 时出错，请检查网络环境。");
     } finally {
@@ -82,10 +111,7 @@ const ResultView: React.FC = () => {
   };
 
   const handleSave = () => {
-    if (data) {
-      addToNotebook({ ...data, imageUrls: images });
-      setSaved(true);
-    }
+    if (data) { addToNotebook({ ...data, imageUrls: images }); setSaved(true); }
   };
 
   const handleSendChat = async () => {
@@ -96,37 +122,130 @@ const ResultView: React.FC = () => {
     setChatInput('');
     setChatLoading(true);
     try {
-      // 构建正确的历史记录格式
-      const history = chatMessages.map(m => ({
-        role: m.role === 'model' ? 'assistant' : 'user',
-        content: m.text
-      }));
+      const history = chatMessages.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text }));
       const replyText = await chatWithWordContext(history, currentInput, data);
       setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: replyText }]);
-    } catch (e) {
-      console.error('AI 聊天错误:', e);
+    } catch {
       setChatMessages(prev => [...prev, { id: Date.now().toString(), role: 'model', text: "对话连接失败。" }]);
     } finally {
       setChatLoading(false);
     }
   };
 
-  if (loading) return (
-    <div className="h-full flex flex-col items-center justify-center space-y-6 min-h-[70vh]">
-      <div className="relative">
-        <div className="w-20 h-20 border-4 border-primary/10 border-t-primary rounded-full animate-spin"></div>
-        <Sparkles className="absolute inset-0 m-auto w-8 h-8 text-primary animate-pulse" />
-      </div>
-      <div className="text-center">
-        <p className="text-gray-500 font-bold text-lg mb-2">正在通过 AI 引擎解析...</p>
-        <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
-           <Globe className="w-3 h-3 animate-spin" />
-           <span>跨越地理限制调取词库</span>
+  // ── Loading screen (before definition arrives) ──────────────────────────
+  if (loading && !partialData?.chineseDefinition) {
+    const steps = ['识别词形', '理解语义', '生成例句', '整理完成'];
+    const tip = FRENCH_TIPS[tipIndex];
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center p-8 space-y-8">
+        <div className="text-center">
+          <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-2">正在解析</p>
+          <h1 className="text-4xl sm:text-5xl font-black text-gray-800">{decodedQuery}</h1>
+        </div>
+
+        <div className="relative">
+          <div className="w-16 h-16 border-4 border-primary/10 border-t-primary rounded-full animate-spin" />
+          <Sparkles className="absolute inset-0 m-auto w-7 h-7 text-primary animate-pulse" />
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap justify-center">
+          {steps.map((step, i) => (
+            <React.Fragment key={i}>
+              <div className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-500 ${
+                loadingStep > i ? 'bg-primary text-white' :
+                loadingStep === i ? 'bg-primary/15 text-primary' : 'bg-gray-100 text-gray-300'
+              }`}>
+                {loadingStep > i && <Check className="w-3 h-3" />}
+                {step}
+              </div>
+              {i < steps.length - 1 && (
+                <div className={`w-3 h-0.5 rounded-full transition-all duration-500 ${loadingStep > i ? 'bg-primary' : 'bg-gray-200'}`} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-sm border border-gray-100 transition-all duration-500">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">法语名言</p>
+          <p className="text-base font-medium text-gray-800 italic leading-relaxed mb-1">"{tip.quote}"</p>
+          <p className="text-[11px] text-indigo-400 font-semibold mb-2">— {tip.author}</p>
+          <p className="text-xs text-gray-400 leading-relaxed">{tip.chinese}</p>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 
+  // ── Partial result (definition arrived, examples still loading) ──────────
+  if (loading && partialData?.chineseDefinition) {
+    const displayWord = partialData.text || decodedQuery;
+    return (
+      <div className="pb-24 bg-background min-h-full">
+        <header className="sticky top-0 bg-white/80 backdrop-blur-xl z-40 px-6 py-4 flex items-center justify-between border-b border-gray-100">
+          <div className="flex items-center gap-4">
+            <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-2xl transition-colors">
+              <ArrowLeft className="w-6 h-6 text-gray-600" />
+            </button>
+            <h2 className="font-black text-xl text-gray-800 truncate">{displayWord}</h2>
+          </div>
+          <div className="flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-2xl">
+            <div className="w-1.5 h-1.5 bg-primary rounded-full animate-ping" />
+            <span className="text-xs text-primary font-bold">生成中</span>
+          </div>
+        </header>
+
+        <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+          {/* Definition card */}
+          <div className="bg-white rounded-[2rem] p-6 sm:p-10 shadow-sm border border-gray-100">
+            <h1 className="text-4xl sm:text-6xl font-black text-primary mb-3">{displayWord}</h1>
+            <div className="flex items-center gap-3 text-gray-400 font-mono mb-6 flex-wrap">
+              {partialData.pos && <span className="px-2 py-0.5 bg-gray-50 rounded-lg text-sm font-bold italic">{partialData.pos}</span>}
+              {partialData.ipa && <span className="text-sm">{partialData.ipa}</span>}
+            </div>
+            <p className="text-2xl sm:text-3xl font-black text-gray-800 border-l-8 border-primary pl-5">{partialData.chineseDefinition}</p>
+            {partialData.frenchDefinition && (
+              <div className="bg-gray-50 p-5 rounded-2xl mt-5 flex items-start gap-4">
+                <span className="font-black text-primary text-lg">FR</span>
+                <p className="text-base sm:text-lg text-gray-600 flex-1 leading-relaxed">{partialData.frenchDefinition}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Examples skeleton */}
+          <div className="bg-white rounded-[2rem] p-6 sm:p-8 shadow-sm border border-gray-100">
+            <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-accent" />
+              智能例句解析
+              <span className="text-xs text-primary font-bold animate-pulse ml-1">AI 生成中...</span>
+            </h3>
+            <div className="space-y-6">
+              {[75, 55].map((w, i) => (
+                <div key={i} className="pl-6 border-l-4 border-gray-100 space-y-2.5">
+                  <div className="h-5 bg-gray-100 rounded-lg animate-pulse" style={{ width: `${w}%` }} />
+                  <div className="h-4 bg-gray-50 rounded-lg animate-pulse" style={{ width: `${w - 20}%` }} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Fun note */}
+          {partialData.funNote ? (
+            <div className="bg-gradient-to-br from-primary to-indigo-700 rounded-[2rem] p-6 sm:p-8 text-white shadow-xl">
+              <h3 className="text-base font-black mb-3 flex items-center gap-2"><MessageCircle className="w-5 h-5" />学习锦囊</h3>
+              <p className="text-sm sm:text-lg leading-relaxed font-medium text-indigo-50">"{partialData.funNote}"</p>
+            </div>
+          ) : (
+            <div className="bg-gray-100 rounded-[2rem] p-8 animate-pulse space-y-3">
+              <div className="h-4 bg-gray-200 rounded w-1/4" />
+              <div className="h-4 bg-gray-200 rounded w-3/4" />
+              <div className="h-4 bg-gray-200 rounded w-1/2" />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Error state ──────────────────────────────────────────────────────────
   if (error || !data) return (
     <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-6 max-w-md mx-auto min-h-[70vh]">
       <div className="w-24 h-24 bg-red-50 rounded-[2.5rem] flex items-center justify-center border-4 border-white shadow-xl">
@@ -147,6 +266,7 @@ const ResultView: React.FC = () => {
     </div>
   );
 
+  // ── Full result ──────────────────────────────────────────────────────────
   return (
     <div className="pb-24 bg-background min-h-full">
       <header className="sticky top-0 bg-white/80 backdrop-blur-xl z-40 px-6 py-4 flex items-center justify-between border-b border-gray-100">
@@ -156,7 +276,7 @@ const ResultView: React.FC = () => {
           </button>
           <h2 className="font-black text-xl text-gray-800 truncate">{data.text}</h2>
         </div>
-        <button 
+        <button
           onClick={handleSave}
           disabled={saved}
           className={`px-6 py-2 rounded-2xl font-bold transition-all flex items-center gap-2 ${saved ? 'bg-green-100 text-green-600' : 'bg-gray-900 text-white hover:bg-gray-800'}`}
@@ -197,13 +317,23 @@ const ResultView: React.FC = () => {
             )}
             <div className="space-y-4 sm:space-y-6">
               <p className="text-2xl sm:text-3xl font-black text-gray-800 border-l-6 sm:border-l-8 border-primary pl-4 sm:pl-6">{data.chineseDefinition}</p>
-              <div className="bg-gray-50 p-4 sm:p-6 rounded-[1.5rem] sm:rounded-[2rem] flex items-start gap-3 sm:gap-4 group">
+              <div className="bg-gray-50 p-4 sm:p-6 rounded-[1.5rem] sm:rounded-[2rem] flex items-start gap-3 sm:gap-4">
                 <span className="font-black text-primary text-lg sm:text-xl">FR</span>
                 <p className="text-base sm:text-lg text-gray-600 flex-1 leading-relaxed">{data.frenchDefinition}</p>
-                <AudioPlayer text={data.frenchDefinition} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                <AudioPlayer text={data.frenchDefinition} className="shrink-0 bg-primary/10 text-primary hover:bg-primary hover:text-white" />
               </div>
             </div>
           </div>
+
+          {images.length > 0 && (
+            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+              {images.map((img, i) => (
+                <div key={i} className="aspect-square rounded-2xl sm:rounded-3xl overflow-hidden shadow-sm border border-gray-100 relative group cursor-zoom-in">
+                  <img src={img} alt="visual context" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                </div>
+              ))}
+            </div>
+          )}
 
           {data.genderForms && (() => {
             const gf = data.genderForms!;
@@ -274,14 +404,6 @@ const ResultView: React.FC = () => {
             <p className="text-sm sm:text-lg leading-relaxed font-medium text-indigo-50">"{data.funNote}"</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            {images.map((img, i) => (
-              <div key={i} className="aspect-square rounded-2xl sm:rounded-3xl overflow-hidden shadow-sm border border-gray-100 relative group cursor-zoom-in">
-                <img src={img} alt="visual context" className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-              </div>
-            ))}
-          </div>
-
           {conjLoading && (
             <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm border border-gray-100">
               <div className="flex items-center gap-3 text-gray-400">
@@ -292,7 +414,7 @@ const ResultView: React.FC = () => {
           )}
           {!conjLoading && data.conjugations && data.conjugations.length > 0 && (
             <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-8 shadow-sm border border-gray-100">
-               <h3 className="text-base sm:text-xl font-black text-gray-800 mb-4 sm:mb-6 flex items-center gap-2"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-secondary" /><span>核心变位</span></h3>
+              <h3 className="text-base sm:text-xl font-black text-gray-800 mb-4 sm:mb-6 flex items-center gap-2"><BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-secondary" /><span>核心变位</span></h3>
               <div className="space-y-4 sm:space-y-6">
                 {data.conjugations.map((conj, idx) => (
                   <div key={idx} className="bg-gray-50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-gray-100">
@@ -312,9 +434,7 @@ const ResultView: React.FC = () => {
                             );
                             return (
                               <div key={i} className={`px-2.5 py-1.5 rounded-lg text-[12px] sm:text-[13px] font-medium leading-snug transition-colors ${
-                                isMatch
-                                  ? 'bg-indigo-100 text-indigo-700 font-black ring-1 ring-indigo-300'
-                                  : 'bg-white/80 text-gray-700'
+                                isMatch ? 'bg-indigo-100 text-indigo-700 font-black ring-1 ring-indigo-300' : 'bg-white/80 text-gray-700'
                               }`}>
                                 {form}
                                 {isMatch && <span className="ml-1.5 text-[9px] text-indigo-400 font-black uppercase tracking-wide">← 您搜索的</span>}
@@ -332,7 +452,6 @@ const ResultView: React.FC = () => {
         </div>
       </div>
 
-      {/* 对话按钮 - 仅在对话窗口关闭时显示 */}
       {!isChatOpen && (
         <button onClick={() => setIsChatOpen(true)} className="fixed bottom-24 md:bottom-10 right-6 bg-gray-900 text-white p-5 rounded-full shadow-2xl z-50 hover:scale-110 active:scale-95 transition-all flex items-center gap-3 group">
           <MessageCircle className="w-7 h-7" />
@@ -340,7 +459,6 @@ const ResultView: React.FC = () => {
         </button>
       )}
 
-      {/* 对话窗口 - 仅在对话窗口打开时显示 */}
       {isChatOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center md:justify-end md:p-6 bg-black/40 backdrop-blur-sm">
           <div className="bg-white w-full h-full md:w-[400px] md:h-[80vh] md:rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden transition-all duration-300">

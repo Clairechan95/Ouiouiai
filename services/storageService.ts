@@ -1,11 +1,12 @@
 
-import { WordEntry, SavedStory } from '../types';
+import { WordEntry, SavedStory, WrongAnswer } from '../types';
 
 const KEYS = {
   NOTEBOOK: 'oui_notebook',
   CACHE_WORDS: 'oui_cache_words',
   SAVED_STORIES: 'oui_saved_stories',
-  RECENT_SEARCHES: 'oui_recent_searches'
+  RECENT_SEARCHES: 'oui_recent_searches',
+  WRONG_ANSWERS: 'oui_wrong_answers',
 };
 
 export const storage = {
@@ -31,5 +32,9 @@ export const storage = {
 
   // 最近搜索
   getRecent: (): string[] => JSON.parse(localStorage.getItem(KEYS.RECENT_SEARCHES) || '[]'),
-  saveRecent: (list: string[]) => localStorage.setItem(KEYS.RECENT_SEARCHES, JSON.stringify(list))
+  saveRecent: (list: string[]) => localStorage.setItem(KEYS.RECENT_SEARCHES, JSON.stringify(list)),
+
+  // 错题本
+  getWrongAnswers: (): WrongAnswer[] => JSON.parse(localStorage.getItem(KEYS.WRONG_ANSWERS) || '[]'),
+  saveWrongAnswers: (items: WrongAnswer[]) => localStorage.setItem(KEYS.WRONG_ANSWERS, JSON.stringify(items)),
 };

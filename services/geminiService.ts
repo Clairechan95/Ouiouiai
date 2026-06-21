@@ -50,6 +50,14 @@ const fetchDeepSeek = async (path: string, body: any) => {
   return response.json();
 };
 
+// Helper: extract a string field from a partial streaming JSON buffer
+function extractJsonField(buffer: string, fieldName: string): string | undefined {
+  const regex = new RegExp(`"${fieldName}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`, 's');
+  const match = buffer.match(regex);
+  if (!match) return undefined;
+  return match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+}
+
 // --- 查词服务 ---
 
 export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<WordEntry> => {
@@ -58,7 +66,7 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
   然后，针对中国学生（当前级别: ${userLevel}）提供详细解析。
   必须严格以 JSON 格式返回，不要包含任何 Markdown 标记，字段如下：
   {
-    "correctText": "纠正后的正确法语单词或短语",
+    "correctText": "纠正后的正确法语单词或短语（法语普通名词、动词、形容词等均使用小写；仅专有名词首字母大写）",
     "chineseDefinition": "核心中文释义",
     "frenchDefinition": "法语简单定义",
     "pos": "词性(如 n.f., v., adj.)",
@@ -116,6 +124,146 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
   }
 };
 
+export interface PartialWordData {
+  text?: string;
+  chineseDefinition?: string;
+  frenchDefinition?: string;
+  pos?: string;
+  ipa?: string;
+  funNote?: string;
+}
+
+// Streaming version of lookupWord – yields partial fields as they arrive, then the complete WordEntry
+export async function* lookupWordStreaming(
+  text: string,
+  userLevel: CEFRLevel
+): AsyncGenerator<{ partial: PartialWordData; complete: WordEntry | null }> {
+  if (!API_KEY) throw new Error("API 密钥未配置，请检查 .env.local 文件");
+
+  const prompt = `你是一个专业的法语老师和语言学家。请分析法语内容: "${text}"。
+  首先，请检查并纠正输入文本中的拼写错误，得到正确的法语单词或短语。
+  然后，针对中国学生（当前级别: ${userLevel}）提供详细解析。
+  必须严格以 JSON 格式返回，不要包含任何 Markdown 标记，字段如下：
+  {
+    "correctText": "纠正后的正确法语单词或短语（法语普通名词、动词、形容词等均使用小写；仅专有名词首字母大写）",
+    "chineseDefinition": "核心中文释义",
+    "frenchDefinition": "法语简单定义",
+    "pos": "词性(如 n.f., v., adj.)",
+    "ipa": "国际音标",
+    "detectedForm": 若输入本身是某个变位形式而非动词原形（如 voudrais、allait、ferez），填写：{"infinitive": "动词原形", "tense": "所属时态（中法双语，如 Conditionnel présent 条件式现在时）", "person": "人称（如 1re pers. sing.）"}，否则填 null,
+    "isVerb": 是动词填 true，否则填 false,
+    "examples": 只提供恰好2条例句：[{"french":"例句1","chinese":"译文1"},{"french":"例句2","chinese":"译文2"}],
+    "funNote": "趣味助记词或文化小常识",
+    "themes": ["相关主题标签1", "标签2"],
+    "imageKeyword": "2到4个英文单词，精准描述该词核心含义的具体视觉场景，用于AI图片生成，必须是英文",
+    "reflexiveForm": 若该动词有常用自反/代词式用法，填入完整自反形式（如 "s'appeler", "se lever", "se réveiller"），非动词或无自反形式则填 null,
+    "genderForms": 若为名词或形容词，提供性数变化（无变化或不适用的字段留 null）：{"masc": "阳性单数","fem": "阴性单数","pluralMasc": "阳性复数","pluralFem": "阴性复数"} 非名词/形容词返回 null
+  }`;
+
+  const response = await fetch(`${API_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+    body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], stream: true, temperature: 0.7 })
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    let msg = error.error?.message || `请求失败: ${response.status}`;
+    if (response.status === 401) msg = "API 密钥无效，请检查配置";
+    else if (response.status === 402) msg = "API 调用额度不足，请检查密钥状态";
+    else if (response.status === 429) msg = "请求过于频繁，请稍后重试";
+    else if (response.status >= 500) msg = "服务器暂时不可用，请稍后重试";
+    throw new Error(msg);
+  }
+
+  // Fallback for browsers that don't support ReadableStream (rare but possible on old Android WebViews)
+  if (!response.body) {
+    const text = await response.text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("解析结果失败，响应格式异常");
+    const result = JSON.parse(jsonMatch[0]);
+    const wordEntry: WordEntry = {
+      id: Date.now().toString(),
+      text: result.correctText || text,
+      chineseDefinition: result.chineseDefinition,
+      frenchDefinition: result.frenchDefinition,
+      ipa: result.ipa,
+      pos: result.pos,
+      conjugations: [],
+      isVerb: result.isVerb || false,
+      examples: result.examples || [],
+      funNote: result.funNote,
+      themes: result.themes || ["通用"],
+      imageKeyword: result.imageKeyword || '',
+      detectedForm: result.detectedForm || undefined,
+      reflexiveForm: result.reflexiveForm || undefined,
+      genderForms: result.genderForms || undefined,
+      imageUrls: [],
+      createdAt: Date.now()
+    };
+    logWordLookup(wordEntry.text, wordEntry.pos);
+    yield { partial: {}, complete: wordEntry };
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let lastKey = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') continue;
+        try { buffer += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch {}
+      }
+      const partial: PartialWordData = {
+        text: extractJsonField(buffer, 'correctText'),
+        chineseDefinition: extractJsonField(buffer, 'chineseDefinition'),
+        frenchDefinition: extractJsonField(buffer, 'frenchDefinition'),
+        pos: extractJsonField(buffer, 'pos'),
+        ipa: extractJsonField(buffer, 'ipa'),
+        funNote: extractJsonField(buffer, 'funNote'),
+      };
+      const key = Object.values(partial).join('|');
+      if (key !== lastKey) { lastKey = key; yield { partial, complete: null }; }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Parse complete JSON from accumulated buffer
+  const jsonMatch = buffer.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("解析结果失败，响应格式异常");
+  const result = JSON.parse(jsonMatch[0]);
+  const wordEntry: WordEntry = {
+    id: Date.now().toString(),
+    text: result.correctText || text,
+    chineseDefinition: result.chineseDefinition,
+    frenchDefinition: result.frenchDefinition,
+    ipa: result.ipa,
+    pos: result.pos,
+    conjugations: [],
+    isVerb: result.isVerb || false,
+    examples: result.examples || [],
+    funNote: result.funNote,
+    themes: result.themes || ["通用"],
+    imageKeyword: result.imageKeyword || '',
+    detectedForm: result.detectedForm || undefined,
+    reflexiveForm: result.reflexiveForm || undefined,
+    genderForms: result.genderForms || undefined,
+    imageUrls: [],
+    createdAt: Date.now()
+  };
+  logWordLookup(wordEntry.text, wordEntry.pos);
+  yield { partial: {}, complete: wordEntry };
+}
+
 // --- 零成本语音生成 ---
 
 export const generateSpeech = async (text: string): Promise<string | null> => {
@@ -129,10 +277,14 @@ export const lookupConjugations = async (
   infinitive: string,
   detectedTense?: string
 ): Promise<VerbConjugation[]> => {
+  const isReflexive = infinitive.startsWith("se ") || infinitive.startsWith("s'");
+  const reflexiveNote = isReflexive
+    ? `注意：这是代词式/自反动词，每个人称的变位形式必须包含对应的反身代词，格式示例：je me lève, tu te lèves, il/elle se lève, nous nous levons, vous vous levez, ils/elles se lèvent。绝对不能缺少反身代词。`
+    : '';
   const extraTense = detectedTense
     ? `同时必须包含 ${detectedTense} 的完整变位。`
     : '';
-  const prompt = `返回法语动词"${infinitive}"的变位表JSON数组，包含 Présent 直陈现在时 和 Passé composé 复合过去时。${extraTense}每个时态含6个人称完整变位（含主语代词）。只返回JSON数组，格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["j'ai xxx","tu as xxx","il/elle a xxx","nous avons xxx","vous avez xxx","ils/elles ont xxx"]}]`;
+  const prompt = `返回法语动词"${infinitive}"的变位表JSON数组，包含 Présent 直陈现在时 和 Passé composé 复合过去时。${extraTense}${reflexiveNote}每个时态含6个人称完整变位（含主语代词）。只返回JSON数组，格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["je me suis xxx","tu t'es xxx","il/elle s'est xxx","nous nous sommes xxx","vous vous êtes xxx","ils/elles se sont xxx"]}]`;
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: "deepseek-chat",
@@ -181,11 +333,18 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
     
     规则：
     1. 生成的法语文本必须100%语法正确、拼写正确，符合法语标准规范。
-    2. 必须使用 {{单词}} 这种双大括号格式包裹你用到的那几个指定单词。
+    2. 必须使用 {{单词}} 这种双大括号格式包裹你用到的那几个指定单词。若该单词是动词（原形），按以下规则处理：
+       a) 独立谓语动词：按主语正确变位后包裹（错误：le temps {{changer}} ✗；正确：le temps {{change}} ✓）；
+       b) 情态动词（pouvoir、vouloir、devoir、savoir、falloir）或 aller（近将来）后：动词本体保持原形（错误：je peux {{imagine}} ✗；正确：je peux {{imaginer}} ✓）；
+       c) 代词式动词在情态动词后：反身代词按主语调整，但动词本体保持原形（错误：je dois {{me dépêche}} ✗；正确：je dois {{me dépêcher}} ✓；il doit {{se dépêcher}} ✓）；
+       d) 在不同句子中使用不同人称（je/tu/il/elle/nous/vous/ils/elles），充分训练各人称用法。
     3. 第一行必须以 TITLE: 开头。
     4. 每行只输出一个句子及其翻译。
     5. 法语句子必须符合法语语法规则，避免任何语法错误或拼写错误。
     6. 使用标准的法语词汇和表达方式，避免俚语或不标准的用法。
+    7. 【反身代词变位规则】代词式动词（如 se lever、s'asseoir、se dépêcher）在句中使用时，反身代词必须与主语人称严格一致，绝对不能直接照搬原形中的 se/s'：主语 je → me/m'，tu → te/t'，il/elle/on → se/s'，nous → nous，vous → vous，ils/elles → se/s'。错误示例：nous pouvons s'asseoir ✗　正确示例：nous pouvons nous asseoir ✓；il doit se dépêcher ✓，je dois me dépêcher ✓。
+    8. 【主有形容词变位规则】主有形容词（mon/ma/mes, ton/ta/tes, son/sa/ses, notre/nos, votre/vos, leur/leurs）须与句中主语的人称严格对应：主语 je → mon/ma/mes，tu → ton/ta/tes，il/elle → son/sa/ses，nous → notre/nos，vous → votre/vos，ils/elles → leur/leurs。绝对不能出现主语与主有形容词人称不符的情况。
+    9. 【省音规则（极其重要）】当以下词后接以元音（a, e, i, o, u, h muet）开头的单词时，必须使用省音形式，绝对不能写出原形：je → j'（如 j'ai, j'habite, j'aime, j'ouvre），me → m'（如 m'appelle, m'a dit），te → t'（如 t'aimes, t'a vu），se → s'（如 s'appelle, s'est levé），le/la → l'（如 l'ami, l'école），ne → n'（如 n'est, n'a pas），de → d'（如 d'un, d'abord），que → qu'（如 qu'il, qu'elle），si + il → s'il。错误示例：je ai ✗，je habite ✗，me appelle ✗；正确示例：j'ai ✓，j'habite ✓，m'appelle ✓。
   `;
   
   try {
@@ -267,8 +426,10 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
 规则：
 1. 各句子相互独立，无需构成连贯故事
 2. 生成 8-10 个句子，每句 1 个填空
-3. 各时态和人称（je/tu/il/elle/nous/vous/ils/elles）尽量均匀分布
-4. 每个句子必须语法正确、表达自然`;
+3. 各时态和人称（je/tu/il/elle/nous/vous/ils/elles）尽量均匀分布；若包含 Impératif présent，命令式仅有 tu/nous/vous 三个人称，句子无需主语代词（如：{{Mange !|manger|Impératif présent}} 或 {{Allons|aller|Impératif présent}} au parc !）
+4. 每个句子必须语法正确、表达自然
+5. 【反身代词规则】代词式动词（如 se lever、s'asseoir）填空答案中，反身代词必须与主语人称一致：je → me/m'，tu → te/t'，il/elle/on → se/s'，nous → nous，vous → vous，ils/elles → se/s'。正确示例：{{nous nous levons|se lever|Présent}} ✓，而非 {{nous se levons}} ✗
+6. 【省音规则（极其重要）】当主语代词或冠词后接以元音或哑音 h 开头的动词/名词时，必须使用省音形式：je → j'（如 j'{{ai|avoir|Présent}}，j'{{habite|habiter|Présent}}），me → m'，te → t'，se → s'，le/la → l'，ne → n'，de → d'，que → qu'，si + il → s'il。绝对禁止写出 "je ai"、"je habite"、"me appelle" 等未省音形式。正确示例：j'{{aime|aimer|Présent}} ✓，il s'{{est levé|se lever|Passé composé}} ✓`;
 
   try {
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
@@ -323,6 +484,33 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
     console.error("Conjugation Story Streaming Error:", err);
   }
 }
+
+// --- 错误提示生成 ---
+
+export const generateErrorHint = async (params: {
+  userAnswer: string;
+  correctAnswer: string;
+  context: string;
+  type: 'conjugation' | 'cloze';
+  infinitive?: string;
+  tense?: string;
+}): Promise<string> => {
+  const { userAnswer, correctAnswer, context, type, infinitive, tense } = params;
+  const prompt = type === 'conjugation'
+    ? `法语动词变位练习中，学生将"${infinitive}"（${tense}）写成"${userAnswer}"，正确答案是"${correctAnswer}"。请用不超过18个中文字，一句话点出关键错误原因（如词根变化、时态规则、拼写），只给提示，不复述答案。`
+    : `法语听写练习中，学生填"${userAnswer}"，正确是"${correctAnswer}"。句子：${context}。请用不超过18个中文字，一句话点出关键错误原因（如拼写规则、性数配合、词形混淆），只给提示，不复述答案。`;
+  try {
+    const data = await fetchDeepSeek('/chat/completions', {
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 60,
+      temperature: 0.2,
+    });
+    return data.choices[0].message.content.trim();
+  } catch {
+    return '';
+  }
+};
 
 // 图片生成逻辑使用 Silicon Flow API
 export const generateWordImages = async (word: string, imageKeyword: string): Promise<string[]> => {

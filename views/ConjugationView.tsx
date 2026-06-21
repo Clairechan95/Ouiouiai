@@ -1,11 +1,44 @@
 
-import React, { useState } from 'react';
-import { Languages, RefreshCw, Info, Check, Save, FileText, Clock, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Languages, RefreshCw, Info, Check, Save, FileText, Headphones, Clock, Trash2, Play, Pause } from 'lucide-react';
 import { useAppContext } from '../App';
-import { generateConjugationStoryStream } from '../services/geminiService';
-import { logFeatureEvent } from '../services/analyticsService';
-import { SavedStory } from '../types';
+import { generateConjugationStoryStream, generateErrorHint } from '../services/geminiService';
+import { logFeatureEvent, logWrongAnswers } from '../services/analyticsService';
+import { SavedStory, WrongAnswer } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
+
+const buildConjHTMLPlayer = (title: string, subtitle: string, items: { id: number; fr: string; cn: string }[]) => `<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title} · OuiOui AI</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f4f6fb;padding:20px;color:#1a1a2e}
+h1{font-size:1.4rem;font-weight:900;margin-bottom:4px}.meta{font-size:.75rem;color:#888;margin-bottom:20px}
+.ctrl{position:sticky;top:16px;z-index:9;background:#fff;border-radius:14px;padding:12px 16px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;box-shadow:0 2px 12px #0001}
+.btn{background:#7c3aed;color:#fff;border:none;border-radius:10px;padding:9px 18px;font-size:.85rem;font-weight:700;cursor:pointer}.btn:hover{background:#6d28d9}.btn.sec{background:#f0f0f2;color:#444}
+.rate-wrap{display:flex;align-items:center;gap:6px;font-size:.75rem;color:#666}
+.card{background:#fff;border-radius:14px;padding:14px 16px;margin-bottom:10px;border:2px solid #eef0f6;cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:border-color .2s,background .2s}
+.card:hover{border-color:#c4b5fd}.card.active{border-color:#7c3aed;background:#f5f3ff}
+.num{min-width:28px;height:28px;background:#7c3aed;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:900}
+.fr{font-size:.95rem;font-weight:600;margin-bottom:3px}.cn{font-size:.8rem;color:#888}
+</style></head><body>
+<h1>${title}</h1><p class="meta">${subtitle} · OuiOui AI 导出</p>
+<div class="ctrl">
+  <button class="btn" onclick="playAll()">▶ 全部朗读</button>
+  <button class="btn sec" onclick="stopAll()">■ 停止</button>
+  <div class="rate-wrap">语速 <input id="rateR" type="range" min=".5" max="1.2" step=".05" value=".85" style="width:80px" oninput="document.getElementById('rateV').textContent=this.value"> <span id="rateV">.85</span></div>
+</div>
+${items.map(s => `<div class="card" id="c${s.id}" onclick="speakOne(${s.id})"><div class="num">${s.id}</div><div><div class="fr">${s.fr}</div><div class="cn">${s.cn}</div></div></div>`).join('')}
+<script>
+const SS=${JSON.stringify(items)};let cur=0,playing=false;
+function rate(){return parseFloat(document.getElementById('rateR').value);}
+function voice(){return speechSynthesis.getVoices().find(v=>v.lang.startsWith('fr'))||null;}
+function highlight(id){document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));const el=document.getElementById('c'+id);if(el){el.classList.add('active');el.scrollIntoView({behavior:'smooth',block:'center'});}}
+function speakOne(id){speechSynthesis.cancel();playing=false;const s=SS.find(x=>x.id===id);if(!s)return;highlight(id);const u=new SpeechSynthesisUtterance(s.fr);u.lang='fr-FR';u.rate=rate();const v=voice();if(v)u.voice=v;u.onend=()=>document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));speechSynthesis.speak(u);}
+function playAll(){speechSynthesis.cancel();cur=0;playing=true;next();}
+function next(){if(!playing||cur>=SS.length){playing=false;document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));return;}const s=SS[cur];highlight(s.id);const u=new SpeechSynthesisUtterance(s.fr);u.lang='fr-FR';u.rate=rate();const v=voice();if(v)u.voice=v;u.onend=()=>{cur++;setTimeout(next,600);};speechSynthesis.speak(u);}
+function stopAll(){speechSynthesis.cancel();playing=false;document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));}
+if(speechSynthesis.onvoiceschanged!==undefined)speechSynthesis.onvoiceschanged=()=>{};
+</script></body></html>`;
 
 const TENSES = [
   { id: 'Présent', label: 'Présent', sub: '直陈现在时' },
@@ -15,6 +48,7 @@ const TENSES = [
   { id: 'Conditionnel présent', label: 'Conditionnel présent', sub: '条件式现在时' },
   { id: 'Subjonctif présent', label: 'Subjonctif présent', sub: '虚拟式现在时' },
   { id: 'Plus-que-parfait', label: 'Plus-que-parfait', sub: '愈过去时' },
+  { id: 'Impératif présent', label: 'Impératif présent', sub: '命令式现在时' },
 ];
 
 interface Segment {
@@ -24,12 +58,20 @@ interface Segment {
 }
 
 const ConjugationView: React.FC = () => {
-  const { notebook, currentLevel, savedStories, saveStory, deleteStory } = useAppContext();
+  const { notebook, currentLevel, savedStories, saveStory, deleteStory, addWrongAnswers } = useAppContext();
 
-  const verbs = notebook.filter(item =>
-    (item.conjugations && item.conjugations.length > 0) ||
-    (item.pos && item.pos.toLowerCase().startsWith('v'))
-  );
+  // 提取动词并去重：若收藏的是变位形式（如 parlons），自动使用原形（parler）
+  const verbMap = new Map<string, typeof notebook[0]>();
+  notebook
+    .filter(item =>
+      (item.conjugations && item.conjugations.length > 0) ||
+      (item.pos && item.pos.toLowerCase().startsWith('v'))
+    )
+    .forEach(item => {
+      const inf = item.detectedForm?.infinitive || item.text;
+      if (!verbMap.has(inf)) verbMap.set(inf, { ...item, text: inf });
+    });
+  const verbs = Array.from(verbMap.values());
 
   const conjugationHistory = savedStories.filter(s => s.type === 'conjugation');
 
@@ -41,11 +83,115 @@ const ConjugationView: React.FC = () => {
   const [streamFinished, setStreamFinished] = useState(false);
   const [userInputs, setUserInputs] = useState<{ [key: string]: string }>({});
   const [showResults, setShowResults] = useState(false);
+  const [hints, setHints] = useState<{ [inputKey: string]: string }>({});
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPlayingIdx, setCurrentPlayingIdx] = useState(-1);
+  const isPlayingRef = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
+  };
+
+  const stopGlobalSpeech = () => {
+    window.speechSynthesis.cancel();
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    setCurrentPlayingIdx(-1);
+  };
+
+  const playFromSentence = (idx: number, segments: Segment[]) => {
+    if (!isPlayingRef.current || idx >= segments.length) {
+      isPlayingRef.current = false;
+      setIsPlaying(false);
+      setCurrentPlayingIdx(-1);
+      return;
+    }
+    setCurrentPlayingIdx(idx);
+    const text = segments[idx].french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, '$1');
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const frVoice = voices.find(v => v.lang.startsWith('fr'));
+    if (frVoice) utterance.voice = frVoice;
+    utterance.lang = 'fr-FR';
+    utterance.rate = 0.85;
+    utterance.onend = () => setTimeout(() => playFromSentence(idx + 1, segments), 500);
+    utterance.onerror = () => { isPlayingRef.current = false; setIsPlaying(false); setCurrentPlayingIdx(-1); };
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const playFullStory = () => {
+    if (isPlaying) { stopGlobalSpeech(); return; }
+    if (!story) return;
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    playFromSentence(0, story.segments);
+  };
+
+  const seekTo = (idx: number) => {
+    if (!story) return;
+    window.speechSynthesis.cancel();
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    playFromSentence(idx, story.segments);
+  };
+
+  useEffect(() => {
+    if (currentPlayingIdx >= 0) {
+      document.getElementById(`conj-seg-${currentPlayingIdx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [currentPlayingIdx]);
+
+  const handleCheckResults = () => {
+    if (!story) return;
+    const wrongs: WrongAnswer[] = [];
+    const wrongKeys: Array<{ inputKey: string; answer: string; userAnswer: string; infinitive: string; tense: string; context: string }> = [];
+    story.segments.forEach(seg => {
+      const parts = seg.french.split(/(\{\{.*?\}\})/g);
+      let blankCount = 0;
+      parts.forEach(part => {
+        const match = part.match(/\{\{(.*?)\|(.*?)\|(.*?)\}\}/);
+        if (match) {
+          const [, answer, verbBase, tense] = match;
+          const inputKey = `${seg.id}-${blankCount++}`;
+          const userAnswer = userInputs[inputKey] || '';
+          if (userAnswer.toLowerCase().trim() !== answer.toLowerCase().trim()) {
+            const context = seg.french.replace(/\{\{.*?\|.*?\|.*?\}\}/g, '_____');
+            wrongs.push({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              createdAt: Date.now(),
+              sourceType: 'conjugation',
+              answer,
+              userAnswer,
+              context,
+              chinese: seg.chinese,
+              infinitive: verbBase,
+              tense,
+              mastered: false,
+            });
+            wrongKeys.push({ inputKey, answer, userAnswer, infinitive: verbBase, tense, context });
+          }
+        }
+      });
+    });
+    if (wrongs.length > 0) {
+      addWrongAnswers(wrongs);
+      logWrongAnswers(wrongs.map(w => ({
+        source_type: w.sourceType,
+        answer: w.answer,
+        user_answer: w.userAnswer,
+        infinitive: w.infinitive,
+        tense: w.tense,
+      })));
+      showToast(`已记录 ${wrongs.length} 道错题`);
+    }
+    setShowResults(true);
+    setHints({});
+    wrongKeys.forEach(({ inputKey, answer, userAnswer, infinitive, tense, context }) => {
+      generateErrorHint({ userAnswer, correctAnswer: answer, context, type: 'conjugation', infinitive, tense })
+        .then(hint => { if (hint) setHints(prev => ({ ...prev, [inputKey]: hint })); });
+    });
   };
 
   const toggleVerb = (verb: string) => {
@@ -66,11 +212,13 @@ const ConjugationView: React.FC = () => {
     if (verbsToUse.length === 0 || tensesToUse.length === 0) return;
     logFeatureEvent('conjugation_generate');
     setActiveTab('create');
+    stopGlobalSpeech();
     setLoading(true);
     setStory({ title: '创作中...', segments: [] });
     setStreamFinished(false);
     setShowResults(false);
     setUserInputs({});
+    setHints({});
 
     try {
       const stream = generateConjugationStoryStream(verbsToUse, tensesToUse, currentLevel);
@@ -113,37 +261,60 @@ const ConjugationView: React.FC = () => {
     showToast('已保存 ✓');
   };
 
+  // 导出双版本文本（填空 + 答案）
   const handleDownload = () => {
     if (!story) return;
-    const lines = [`TITLE: ${story.title}`, ''];
-    story.segments.forEach((seg, i) => {
-      const cleanFrench = seg.french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, (_, ans) => `[${ans}]`);
-      lines.push(`[${i + 1}] ${cleanFrench}`);
-      lines.push(`     ${seg.chinese}`);
-      lines.push('');
-    });
-    lines.push('---');
-    lines.push(`动词：${selectedVerbs.join('、')}`);
-    lines.push(`时态：${selectedTenses.join('、')}`);
-
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const blankLines = story.segments.map((seg, i) => {
+      const blank = seg.french.replace(/\{\{(.*?)\|(.*?)\|(.*?)\}\}/g, (_: string, __: string, verb: string, tense: string) => `___(${verb} · ${tense})`);
+      return `${i + 1}. ${blank}\n   ${seg.chinese}`;
+    }).join('\n\n');
+    const answerLines = story.segments.map((seg, i) => {
+      const answered = seg.french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, (_: string, ans: string) => `[${ans}]`);
+      return `${i + 1}. ${answered}\n   ${seg.chinese}`;
+    }).join('\n\n');
+    const sep = '─'.repeat(36);
+    const content = `TITLE: ${story.title}\n动词：${selectedVerbs.join('、')}　时态：${selectedTenses.join('、')}\n\n` +
+      `${sep}\n✍️  填空练习版\n${sep}\n\n${blankLines}\n\n` +
+      `${sep}\n✅  答案版\n${sep}\n\n${answerLines}`;
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `OuiOui_Conjugation_${story.title}.txt`;
+    a.download = `OuiOui_变位练习_${story.title}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
+  // 导出 HTML 朗读播放器
+  const handleExportHTML = () => {
+    if (!story) return;
+    const items = story.segments.map((s, i) => ({
+      id: i + 1,
+      fr: s.french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, '$1'),
+      cn: s.chinese,
+    }));
+    const subtitle = `动词：${selectedVerbs.join('、')} · ${selectedTenses.join('、')}`;
+    const html = buildConjHTMLPlayer(story.title, subtitle, items);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `OuiOui_变位练习_播放器.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('已导出 HTML 播放器');
+  };
+
   const renderSegment = (segment: Segment, index: number) => {
     const parts = segment.french.split(/(\{\{.*?\}\})/g);
     let blankCount = 0;
     const cleanText = segment.french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, '$1');
+    const isActive = index === currentPlayingIdx;
 
     return (
-      <div key={segment.id} className="p-5 rounded-[2rem] border bg-white border-gray-100 mb-4 shadow-sm">
+      <div key={segment.id} id={`conj-seg-${index}`} className={`p-5 rounded-[2rem] border mb-4 shadow-sm transition-all duration-300 ${isActive ? 'bg-violet-50 border-violet-300 shadow-violet-100' : 'bg-white border-gray-100'}`}>
         <div className="flex gap-4">
           <div className="flex flex-col items-center gap-2 shrink-0">
             <span className="w-7 h-7 rounded-full bg-violet-100 text-violet-600 text-xs font-black flex items-center justify-center">{index + 1}</span>
@@ -169,10 +340,16 @@ const ConjugationView: React.FC = () => {
                           placeholder="___"
                         />
                       ) : (
-                        <span className={`px-2.5 py-0.5 rounded-lg border font-bold text-sm ${isCorrect ? 'bg-green-100 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                        <span className={`px-2.5 py-1 rounded-lg border font-bold text-sm ${isCorrect ? 'bg-green-100 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
                           {isCorrect
                             ? <span className="flex items-center gap-1"><Check className="w-3 h-3" />{answer}</span>
-                            : <span>{userAnswer || '?'} → {answer}</span>
+                            : <span className="flex flex-col gap-0.5">
+                                <span>{userAnswer || '?'} → {answer}</span>
+                                {hints[inputKey]
+                                  ? <span className="text-[11px] text-amber-600 font-medium flex items-center gap-1">💡 {hints[inputKey]}</span>
+                                  : <span className="text-[10px] text-red-300 animate-pulse font-normal">AI 分析中...</span>
+                                }
+                              </span>
                           }
                         </span>
                       )}
@@ -374,15 +551,58 @@ const ConjugationView: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button onClick={handleDownload} title="导出 TXT" className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
+                  <button onClick={handleExportHTML} title="导出 HTML 朗读播放器" className="flex flex-col items-center gap-1 px-2.5 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
+                    <Headphones className="w-4 h-4" />
+                    <span className="text-[9px] text-gray-400">音频</span>
+                  </button>
+                  <button onClick={handleDownload} title="导出文本（填空版+答案版）" className="flex flex-col items-center gap-1 px-2.5 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
                     <FileText className="w-4 h-4" />
+                    <span className="text-[9px] text-gray-400">文本</span>
                   </button>
-                  <button onClick={handleSave} title="保存" className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
+                  <button onClick={handleSave} title="保存" className="flex flex-col items-center gap-1 px-2.5 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
                     <Save className="w-4 h-4" />
+                    <span className="text-[9px] text-gray-400">保存</span>
                   </button>
-                  <button onClick={() => { setStory(null); setStreamFinished(false); setShowResults(false); setUserInputs({}); }} title="重新选择" className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
+                  <button onClick={() => { stopGlobalSpeech(); setStory(null); setStreamFinished(false); setShowResults(false); setUserInputs({}); setHints({}); }} title="重新选择" className="flex flex-col items-center gap-1 px-2.5 py-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors">
                     <RefreshCw className="w-4 h-4" />
+                    <span className="text-[9px] text-gray-400">重选</span>
                   </button>
+                </div>
+              </div>
+              {/* 播放控制栏 */}
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={playFullStory}
+                  className="w-12 h-12 bg-violet-600 text-white rounded-full flex items-center justify-center shrink-0 shadow-xl shadow-violet-900/50 hover:scale-105 active:scale-95 transition-all"
+                >
+                  {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <span className="text-xs text-gray-400">
+                      {currentPlayingIdx >= 0 ? `第 ${currentPlayingIdx + 1} / ${story.segments.length} 句` : '点击进度条可跳转'}
+                    </span>
+                    {currentPlayingIdx >= 0 && (
+                      <span className="text-xs text-gray-500">{Math.round((currentPlayingIdx + 1) / story.segments.length * 100)}%</span>
+                    )}
+                  </div>
+                  <div
+                    className="h-2.5 bg-white/10 rounded-full cursor-pointer relative group"
+                    onClick={e => {
+                      const pct = e.nativeEvent.offsetX / e.currentTarget.offsetWidth;
+                      const idx = Math.max(0, Math.min(Math.floor(pct * story.segments.length), story.segments.length - 1));
+                      seekTo(idx);
+                    }}
+                  >
+                    <div
+                      className="h-full bg-violet-500 rounded-full transition-all duration-300 pointer-events-none"
+                      style={{ width: `${currentPlayingIdx >= 0 ? (currentPlayingIdx + 1) / story.segments.length * 100 : 0}%` }}
+                    />
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow pointer-events-none transition-all duration-300 opacity-0 group-hover:opacity-100"
+                      style={{ left: `calc(${currentPlayingIdx >= 0 ? (currentPlayingIdx + 1) / story.segments.length * 100 : 0}% - 6px)` }}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -402,7 +622,7 @@ const ConjugationView: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               {!showResults ? (
                 <button
-                  onClick={() => setShowResults(true)}
+                  onClick={handleCheckResults}
                   className="col-span-2 bg-green-500 text-white py-5 rounded-[2rem] font-black text-lg shadow-2xl shadow-green-100 active:scale-95 transition-all"
                 >
                   核对答案
@@ -412,7 +632,7 @@ const ConjugationView: React.FC = () => {
                   <button onClick={() => handleGenerate()} className="bg-violet-600 text-white py-4 rounded-[2rem] font-black active:scale-95 transition-all shadow-lg shadow-violet-200">
                     重新生成
                   </button>
-                  <button onClick={() => { setShowResults(false); setUserInputs({}); }} className="bg-gray-100 text-gray-700 py-4 rounded-[2rem] font-black active:scale-95 transition-all">
+                  <button onClick={() => { stopGlobalSpeech(); setShowResults(false); setUserInputs({}); setHints({}); }} className="bg-gray-100 text-gray-700 py-4 rounded-[2rem] font-black active:scale-95 transition-all">
                     清除重练
                   </button>
                 </>

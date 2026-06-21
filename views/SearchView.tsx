@@ -189,7 +189,7 @@ const SearchView: React.FC = () => {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="单词、短语、或整个句子..."
+              placeholder="输入法语或中文..."
               className="w-full p-6 pl-14 md:p-8 md:pl-16 rounded-3xl bg-white border-2 border-transparent focus:border-primary/20 outline-none text-xl text-gray-700 placeholder:text-gray-300"
             />
             <Search className="absolute left-6 md:left-7 top-1/2 -translate-y-1/2 text-gray-400 w-6 h-6 group-focus-within:text-primary transition-colors" />

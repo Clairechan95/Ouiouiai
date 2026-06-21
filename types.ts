@@ -79,3 +79,17 @@ export interface SavedStory {
   type?: 'cloze' | 'conjugation';
   tenses?: string[];
 }
+
+export interface WrongAnswer {
+  id: string;
+  createdAt: number;
+  sourceType: 'conjugation' | 'cloze';
+  answer: string;       // 正确答案
+  userAnswer: string;   // 用户的错误答案
+  context: string;      // 法语原句（空白处用 _____ 占位）
+  chinese: string;      // 中文翻译
+  infinitive?: string;  // 动词原形（仅 conjugation）
+  tense?: string;       // 时态（仅 conjugation）
+  theme?: string;       // 主题（仅 cloze）
+  mastered: boolean;
+}
