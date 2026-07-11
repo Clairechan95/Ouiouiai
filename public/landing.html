@@ -3,9 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="OuiOui AI 是面向中文用户的法语 AI 学习伴侣，支持智能查词、生词本、创意听写、变位练习与错题复习。" />
+  <meta name="robots" content="index,follow" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="OuiOui AI" />
+  <meta property="og:title" content="OuiOui AI — 法语 AI 学习伴侣" />
+  <meta property="og:description" content="输入法语或中文，由 AI 深度解析词义、发音、变位与语境例句。专为中国学习者设计。" />
+  <meta property="og:url" content="https://ouiouiai.pages.dev/landing.html" />
+  <meta name="theme-color" content="#6366f1" />
   <title>OuiOui AI — 法语 AI 学习伴侣</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="canonical" href="https://ouiouiai.pages.dev/landing.html" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -24,7 +33,7 @@
     html { scroll-behavior: smooth; }
 
     body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
@@ -133,6 +142,63 @@
 
     .hero-note {
       margin-top: 1.5rem; font-size: 0.8rem; color: #9ca3af;
+    }
+    .hero-preview {
+      width: min(760px, 100%);
+      margin-top: 3rem;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: linear-gradient(180deg, #fff 0%, #fafaff 100%);
+      box-shadow: 0 24px 80px rgba(15,15,26,0.10);
+      overflow: hidden;
+      text-align: left;
+      position: relative;
+      z-index: 1;
+    }
+    .preview-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.9rem 1rem; border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.76);
+    }
+    .preview-brand { display: flex; align-items: center; gap: 0.7rem; font-weight: 800; }
+    .preview-logo {
+      width: 30px; height: 30px; border-radius: 8px; background: var(--indigo);
+      color: white; display: grid; place-items: center; font-size: 0.8rem; font-weight: 900;
+    }
+    .preview-pill {
+      color: #16a34a; background: #ecfdf5; border: 1px solid #bbf7d0;
+      padding: 0.28rem 0.65rem; border-radius: 100px; font-size: 0.72rem; font-weight: 700;
+    }
+    .preview-body {
+      display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 1.5rem;
+      padding: 1.25rem;
+    }
+    .preview-search {
+      border: 1px solid var(--border); border-radius: 14px; background: white;
+      padding: 1rem; box-shadow: 0 10px 30px rgba(99,102,241,0.08);
+    }
+    .preview-input {
+      display: flex; align-items: center; justify-content: space-between;
+      border: 1px solid #dddff5; border-radius: 12px; padding: 0.8rem 0.9rem;
+      color: #8b93a7; font-size: 0.92rem;
+    }
+    .preview-button {
+      background: var(--indigo); color: white; border-radius: 10px;
+      padding: 0.52rem 0.8rem; font-size: 0.8rem; font-weight: 800;
+    }
+    .preview-result { margin-top: 1rem; display: grid; gap: 0.75rem; }
+    .preview-word { font-size: 1.7rem; font-weight: 900; letter-spacing: 0; }
+    .preview-phonetic { color: var(--indigo); font-size: 0.88rem; font-weight: 700; }
+    .preview-line { color: var(--text-muted); font-size: 0.88rem; }
+    .preview-card {
+      border: 1px solid var(--border); border-radius: 14px; padding: 1rem;
+      background: #ffffff; display: grid; gap: 0.7rem;
+    }
+    .preview-card-title { font-weight: 800; font-size: 0.95rem; }
+    .preview-chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .preview-chip {
+      background: rgba(99,102,241,0.08); color: var(--indigo);
+      border-radius: 100px; padding: 0.28rem 0.58rem; font-size: 0.72rem; font-weight: 700;
     }
 
     /* STATS */
@@ -286,7 +352,12 @@
       nav { padding: 0 1rem; }
       .stats { gap: 2rem; }
       section { padding: 4rem 1.25rem; }
-      .hero { padding: 100px 1.25rem 60px; }
+      .hero { padding: 100px 1.25rem 56px; }
+      .hero-preview { margin-top: 2rem; border-radius: 14px; }
+      .preview-body { grid-template-columns: 1fr; gap: 1rem; padding: 1rem; }
+      .preview-bar { padding: 0.8rem; }
+      .preview-pill { display: none; }
+      .preview-word { font-size: 1.45rem; }
     }
   </style>
 </head>
@@ -321,6 +392,40 @@
     <a href="#features" class="btn-secondary">了解功能</a>
   </div>
   <p class="hero-note">免费 · 无需注册 · 支持手机与电脑</p>
+  <div class="hero-preview" aria-label="OuiOui AI 应用预览">
+    <div class="preview-bar">
+      <div class="preview-brand">
+        <div class="preview-logo">O</div>
+        智能查词
+      </div>
+      <div class="preview-pill">DeepSeek-V3 Engine Ready</div>
+    </div>
+    <div class="preview-body">
+      <div class="preview-search">
+        <div class="preview-input">
+          <span>chercher un mot...</span>
+          <span class="preview-button">查询</span>
+        </div>
+        <div class="preview-result">
+          <div>
+            <div class="preview-word">apprendre</div>
+            <div class="preview-phonetic">/a.pʁɑ̃dʁ/ · verbe</div>
+          </div>
+          <div class="preview-line">学习；得知；教会。AI 会按你的法语级别调整解释深度。</div>
+        </div>
+      </div>
+      <div class="preview-card">
+        <div class="preview-card-title">收藏后继续练</div>
+        <div class="preview-line">自动进入生词本，生成闪卡、听写短文和变位练习。</div>
+        <div class="preview-chip-row">
+          <span class="preview-chip">A1-C2</span>
+          <span class="preview-chip">阴阳性</span>
+          <span class="preview-chip">变位</span>
+          <span class="preview-chip">Anki CSV</span>
+        </div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- STATS -->
