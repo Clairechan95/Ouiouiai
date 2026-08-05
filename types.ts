@@ -83,7 +83,7 @@ export interface SavedStory {
 export interface WrongAnswer {
   id: string;
   createdAt: number;
-  sourceType: 'conjugation' | 'cloze';
+  sourceType: 'conjugation' | 'cloze' | 'dictation';
   answer: string;       // 正确答案
   userAnswer: string;   // 用户的错误答案
   context: string;      // 法语原句（空白处用 _____ 占位）

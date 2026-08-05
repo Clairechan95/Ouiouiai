@@ -1,8 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../App';
-import { Repeat, BookOpen, Trash2, ArrowLeft, ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
+import { Repeat, BookOpen, Trash2, ArrowLeft, ChevronLeft, ChevronRight, Download, Search, Languages } from 'lucide-react';
 import AudioPlayer from '../components/AudioPlayer';
+import NotebookQuiz from '../components/NotebookQuiz';
 
 // 法语普通词汇应首字母小写（专有名词除外）
 const lcFirst = (text: string, pos?: string): string => {
@@ -28,7 +30,8 @@ const getGenderBadge = (pos?: string, word?: string) => {
 
 const NotebookView: React.FC = () => {
   const { notebook, removeFromNotebook } = useAppContext();
-  const [viewMode, setViewMode] = useState<'list' | 'flashcard'>('list');
+  const routeNavigate = useNavigate();
+  const [viewMode, setViewMode] = useState<'list' | 'flashcard' | 'quiz'>('list');
   const [selectedTheme, setSelectedTheme] = useState<string>('All');
 
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -38,17 +41,21 @@ const NotebookView: React.FC = () => {
   const allThemes = Array.from(new Set(notebook.flatMap(item => item.themes)));
   const filteredItems = selectedTheme === 'All' ? notebook : notebook.filter(item => item.themes.includes(selectedTheme));
 
-  const navigate = (dir: 1 | -1) => {
+  const navigateCard = (dir: 1 | -1) => {
     setIsFlipped(false);
     setTimeout(() => setCurrentCardIndex(prev => (prev + dir + filteredItems.length) % filteredItems.length), 180);
+  };
+
+  const openWordLookup = (word: string) => {
+    routeNavigate(`/result/${encodeURIComponent(word.trim())}`);
   };
 
   // 键盘左右键导航
   useEffect(() => {
     if (viewMode !== 'flashcard') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight') navigate(1);
-      else if (e.key === 'ArrowLeft') navigate(-1);
+      if (e.key === 'ArrowRight') navigateCard(1);
+      else if (e.key === 'ArrowLeft') navigateCard(-1);
       else if (e.key === ' ' || e.key === 'Enter') setIsFlipped(f => !f);
     };
     window.addEventListener('keydown', onKey);
@@ -100,6 +107,10 @@ const NotebookView: React.FC = () => {
     );
   }
 
+  if (viewMode === 'quiz' && filteredItems.length >= 2) {
+    return <NotebookQuiz items={filteredItems} onExit={() => setViewMode('list')} />;
+  }
+
   if (viewMode === 'flashcard' && filteredItems.length > 0) {
     const card = filteredItems[currentCardIndex];
     return (
@@ -119,7 +130,7 @@ const NotebookView: React.FC = () => {
         <div className="flex-1 flex items-center gap-3 sm:gap-6 max-w-3xl mx-auto w-full">
           {/* 左箭头 */}
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigateCard(-1)}
             className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-white rounded-full shadow-lg border border-gray-100 flex items-center justify-center text-gray-400 hover:text-primary hover:shadow-xl hover:border-primary/20 active:scale-90 transition-all"
           >
             <ChevronLeft className="w-6 h-6 sm:w-7 sm:h-7" />
@@ -132,7 +143,7 @@ const NotebookView: React.FC = () => {
             onTouchStart={e => { touchStartX.current = e.touches[0].clientX; }}
             onTouchEnd={e => {
               const dx = e.changedTouches[0].clientX - touchStartX.current;
-              if (Math.abs(dx) > 50) navigate(dx < 0 ? 1 : -1);
+              if (Math.abs(dx) > 50) navigateCard(dx < 0 ? 1 : -1);
               else setIsFlipped(f => !f);
             }}
           >
@@ -171,7 +182,7 @@ const NotebookView: React.FC = () => {
 
           {/* 右箭头 */}
           <button
-            onClick={() => navigate(1)}
+            onClick={() => navigateCard(1)}
             className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 bg-white rounded-full shadow-lg border border-gray-100 flex items-center justify-center text-gray-400 hover:text-primary hover:shadow-xl hover:border-primary/20 active:scale-90 transition-all"
           >
             <ChevronRight className="w-6 h-6 sm:w-7 sm:h-7" />
@@ -208,9 +219,18 @@ const NotebookView: React.FC = () => {
               <Download className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
               <span>导出 CSV (Anki)</span>
             </button>
+            <button
+              onClick={() => setViewMode('quiz')}
+              disabled={filteredItems.length < 2}
+              title={filteredItems.length < 2 ? '至少需要 2 个单词才能开始选择复习' : '开始双向选择复习'}
+              className="bg-primary text-white px-8 py-4 sm:py-5 rounded-2xl sm:rounded-3xl font-black shadow-2xl shadow-primary/30 flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all w-full sm:w-auto disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none disabled:hover:scale-100"
+            >
+              <Languages className="w-5 h-5 sm:w-6 sm:h-6" />
+              <span>开始选择复习</span>
+            </button>
             <button 
               onClick={() => setViewMode('flashcard')} 
-              className="bg-primary text-white px-8 py-4 sm:py-5 rounded-2xl sm:rounded-3xl font-black shadow-2xl shadow-primary/30 flex items-center justify-center gap-3 hover:scale-105 active:scale-95 transition-all w-full sm:w-auto"
+              className="bg-white border-2 border-primary/10 text-primary px-8 py-4 sm:py-5 rounded-2xl sm:rounded-3xl font-black flex items-center justify-center gap-3 hover:bg-indigo-50 active:scale-95 transition-all w-full sm:w-auto"
             >
               <Repeat className="w-5 h-5 sm:w-6 sm:h-6" />
               <span>开启闪卡复习</span>
@@ -242,7 +262,18 @@ const NotebookView: React.FC = () => {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-black text-2xl sm:text-3xl text-gray-800">{lcFirst(item.text, item.pos)}</span>
+                    <button
+                      type="button"
+                      onClick={() => openWordLookup(item.text)}
+                      className="group/word inline-flex items-center gap-2 text-left text-gray-800 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 rounded-lg transition-colors"
+                      aria-label={`查询 ${item.text}`}
+                      title={`查询 ${item.text}`}
+                    >
+                      <span className="font-black text-2xl sm:text-3xl group-hover/word:underline decoration-2 underline-offset-4">
+                        {lcFirst(item.text, item.pos)}
+                      </span>
+                      <Search className="w-4 h-4 sm:w-5 sm:h-5 text-gray-300 group-hover/word:text-primary transition-colors" />
+                    </button>
                     <AudioPlayer text={item.text} className="w-10 h-10 p-2 text-gray-300 hover:text-primary transition-colors" />
                     {(() => { const g = getGenderBadge(item.pos, item.text); return g ? <span className={`text-xs font-black px-2 py-0.5 rounded-full ${g.cls}`}>{g.article}</span> : null; })()}
                   </div>

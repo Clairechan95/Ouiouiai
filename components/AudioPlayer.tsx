@@ -1,5 +1,6 @@
 import React, { useState, useRef, useImperativeHandle, forwardRef, useEffect } from 'react';
 import { Volume2, Loader2, StopCircle } from 'lucide-react';
+import { cancelSpeech, hasSpeechSynthesis, loadSpeechVoices, speakFrench } from '../services/speechService';
 
 interface AudioPlayerProps {
   text: string;
@@ -14,16 +15,10 @@ export interface AudioPlayerHandle {
   stop: () => void;
 }
 
-// Check if Web Speech API is available
-const hasSpeechSynthesis = (): boolean => {
-  return typeof window !== 'undefined' && 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
-};
-
 const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, className = "", autoPlay = false, onPlay, onEnded }, ref) => {
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [supported, setSupported] = useState(true);
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const loadingRef = useRef(false); // Use ref to avoid stale closure in timeouts
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -33,24 +28,10 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, cla
   }));
 
   useEffect(() => {
-    if (!hasSpeechSynthesis()) {
-      setSupported(false);
-      return;
-    }
-
-    const loadVoices = () => {
-      voicesRef.current = window.speechSynthesis.getVoices();
-    };
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-    // Retry after a short delay — some browsers (Android Chrome) load voices asynchronously
-    setTimeout(loadVoices, 500);
+    if (hasSpeechSynthesis()) void loadSpeechVoices();
 
     return () => {
-      if (hasSpeechSynthesis()) {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.onvoiceschanged = null;
-      }
+      cancelSpeech();
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
@@ -60,84 +41,46 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, cla
   }, [autoPlay, text]);
 
   const stopAudio = () => {
-    if (hasSpeechSynthesis()) window.speechSynthesis.cancel();
+    cancelSpeech();
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     loadingRef.current = false;
     setLoading(false);
     setPlaying(false);
   };
 
-  const playAudio = (e?: React.MouseEvent) => {
+  const playAudio = async (e?: React.MouseEvent) => {
     e?.stopPropagation();
 
     if (playing) { stopAudio(); return; }
     if (!text?.trim()) return;
 
-    if (!hasSpeechSynthesis()) {
-      setSupported(false);
-      return;
-    }
-
     onPlay?.();
     setLoading(true);
     loadingRef.current = true;
 
-    window.speechSynthesis.cancel();
-
     try {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'fr-FR';
-      utterance.rate = 0.85;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
-      // Find a French voice, fall back gracefully
-      const voices = voicesRef.current;
-      const frVoice = voices.find(v =>
-        v.lang.startsWith('fr') ||
-        v.name.toLowerCase().includes('french') ||
-        v.name.toLowerCase().includes('français')
-      );
-      if (frVoice) utterance.voice = frVoice;
-
-      utterance.onstart = () => {
-        loadingRef.current = false;
-        setLoading(false);
-        setPlaying(true);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      };
-
-      utterance.onend = () => {
-        setPlaying(false);
-        loadingRef.current = false;
-        onEnded?.();
-      };
-
-      utterance.onerror = (event) => {
-        // 'interrupted' is expected when we cancel; ignore it
-        if (event.error === 'interrupted' || event.error === 'canceled') return;
-        loadingRef.current = false;
-        setLoading(false);
-        setPlaying(false);
-      };
-
-      window.speechSynthesis.speak(utterance);
-
-      // Android fix: some browsers never fire onstart. After 3s, assume it started.
-      // Use ref to get current value instead of stale closure.
-      timeoutRef.current = setTimeout(() => {
-        if (loadingRef.current) {
+      await speakFrench(text, {
+        cancelBeforeSpeak: true,
+        onStart: () => {
           loadingRef.current = false;
           setLoading(false);
-          // Mark as playing — onend will eventually fire, or user can tap to stop
           setPlaying(true);
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        },
+        onEnd: () => {
+          setPlaying(false);
+          loadingRef.current = false;
+          onEnded?.();
+        },
+        onError: (error) => {
+          loadingRef.current = false;
+          setLoading(false);
+          setPlaying(false);
+          if (error === 'missing-french-voice') {
+            setSupported(false);
+          }
         }
-      }, 3000);
-
-      // Hard timeout: if nothing happens after 8s, give up
-      setTimeout(() => {
-        if (loadingRef.current) stopAudio();
-      }, 8000);
+      });
 
     } catch (error) {
       console.error('TTS error:', error);
@@ -151,7 +94,7 @@ const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(({ text, cla
     return (
       <button
         disabled
-        title="当前浏览器不支持语音播放"
+        title="当前设备没有可用的法语语音，请先安装或启用 French / Français 语音"
         className={`p-2 rounded-full opacity-30 cursor-not-allowed flex items-center justify-center ${className}`}
       >
         <Volume2 className="w-5 h-5" />

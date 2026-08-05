@@ -6,25 +6,19 @@ import { logWordLookup } from "./analyticsService";
  * OuiOui AI - 中国区优化方案
  * LLM: DeepSeek-V3 (低成本/高逻辑)
  * TTS: Web Speech API (零成本本地合成)
- * Network: 直连 api.deepseek.com
+ * Network: 通过 Cloudflare Pages Function 代理 DeepSeek，避免国内浏览器直连不稳定
  */
 
-const API_KEY = process.env.API_KEY;
-const API_BASE_URL = "https://api.deepseek.com/v1";
+const API_BASE_URL = "/api/deepseek/v1";
 
 
 // --- AI 请求封装 ---
 
 const fetchDeepSeek = async (path: string, body: any) => {
-  if (!API_KEY) {
-    throw new Error("API 密钥未配置，请检查 .env.local 文件");
-  }
-  
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${API_KEY}`
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
   });
@@ -56,6 +50,26 @@ function extractJsonField(buffer: string, fieldName: string): string | undefined
   const match = buffer.match(regex);
   if (!match) return undefined;
   return match[1].replace(/\\"/g, '"').replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+}
+
+function parseJsonObject(content: string): any {
+  const cleaned = content
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/i, '')
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
+
+  throw new Error(`解析结果失败，响应不是有效 JSON：${cleaned.slice(0, 80)}`);
 }
 
 // --- 查词服务 ---
@@ -96,7 +110,7 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
       temperature: 0.7
     });
     
-    const result = JSON.parse(data.choices[0].message.content);
+    const result = parseJsonObject(data.choices[0].message.content);
     const wordEntry: WordEntry = {
       id: Date.now().toString(),
       text: result.correctText || text,
@@ -133,13 +147,35 @@ export interface PartialWordData {
   funNote?: string;
 }
 
+function buildWordEntryFromResult(result: any, fallbackText: string): WordEntry {
+  const wordEntry: WordEntry = {
+    id: Date.now().toString(),
+    text: result.correctText || fallbackText,
+    chineseDefinition: result.chineseDefinition,
+    frenchDefinition: result.frenchDefinition,
+    ipa: result.ipa,
+    pos: result.pos,
+    conjugations: [],
+    isVerb: result.isVerb || false,
+    examples: result.examples || [],
+    funNote: result.funNote,
+    themes: result.themes || ["通用"],
+    imageKeyword: result.imageKeyword || '',
+    detectedForm: result.detectedForm || undefined,
+    reflexiveForm: result.reflexiveForm || undefined,
+    genderForms: result.genderForms || undefined,
+    imageUrls: [],
+    createdAt: Date.now()
+  };
+  logWordLookup(wordEntry.text, wordEntry.pos);
+  return wordEntry;
+}
+
 // Streaming version of lookupWord – yields partial fields as they arrive, then the complete WordEntry
 export async function* lookupWordStreaming(
   text: string,
   userLevel: CEFRLevel
 ): AsyncGenerator<{ partial: PartialWordData; complete: WordEntry | null }> {
-  if (!API_KEY) throw new Error("API 密钥未配置，请检查 .env.local 文件");
-
   const prompt = `你是一个专业的法语老师和语言学家。请分析法语内容: "${text}"。
   首先，请检查并纠正输入文本中的拼写错误，得到正确的法语单词或短语。
   然后，针对中国学生（当前级别: ${userLevel}）提供详细解析。
@@ -162,8 +198,14 @@ export async function* lookupWordStreaming(
 
   const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-    body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "user", content: prompt }], stream: true, temperature: 0.7 })
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      stream: true,
+      temperature: 0.7
+    })
   });
 
   if (!response.ok) {
@@ -178,30 +220,14 @@ export async function* lookupWordStreaming(
 
   // Fallback for browsers that don't support ReadableStream (rare but possible on old Android WebViews)
   if (!response.body) {
-    const text = await response.text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("解析结果失败，响应格式异常");
-    const result = JSON.parse(jsonMatch[0]);
-    const wordEntry: WordEntry = {
-      id: Date.now().toString(),
-      text: result.correctText || text,
-      chineseDefinition: result.chineseDefinition,
-      frenchDefinition: result.frenchDefinition,
-      ipa: result.ipa,
-      pos: result.pos,
-      conjugations: [],
-      isVerb: result.isVerb || false,
-      examples: result.examples || [],
-      funNote: result.funNote,
-      themes: result.themes || ["通用"],
-      imageKeyword: result.imageKeyword || '',
-      detectedForm: result.detectedForm || undefined,
-      reflexiveForm: result.reflexiveForm || undefined,
-      genderForms: result.genderForms || undefined,
-      imageUrls: [],
-      createdAt: Date.now()
-    };
-    logWordLookup(wordEntry.text, wordEntry.pos);
+    let wordEntry: WordEntry;
+    try {
+      const responseText = await response.text();
+      wordEntry = buildWordEntryFromResult(parseJsonObject(responseText), text);
+    } catch (err) {
+      console.warn('Non-streaming fallback parse failed, retrying lookup:', err);
+      wordEntry = await lookupWord(text, userLevel);
+    }
     yield { partial: {}, complete: wordEntry };
     return;
   }
@@ -238,29 +264,13 @@ export async function* lookupWordStreaming(
   }
 
   // Parse complete JSON from accumulated buffer
-  const jsonMatch = buffer.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("解析结果失败，响应格式异常");
-  const result = JSON.parse(jsonMatch[0]);
-  const wordEntry: WordEntry = {
-    id: Date.now().toString(),
-    text: result.correctText || text,
-    chineseDefinition: result.chineseDefinition,
-    frenchDefinition: result.frenchDefinition,
-    ipa: result.ipa,
-    pos: result.pos,
-    conjugations: [],
-    isVerb: result.isVerb || false,
-    examples: result.examples || [],
-    funNote: result.funNote,
-    themes: result.themes || ["通用"],
-    imageKeyword: result.imageKeyword || '',
-    detectedForm: result.detectedForm || undefined,
-    reflexiveForm: result.reflexiveForm || undefined,
-    genderForms: result.genderForms || undefined,
-    imageUrls: [],
-    createdAt: Date.now()
-  };
-  logWordLookup(wordEntry.text, wordEntry.pos);
+  let wordEntry: WordEntry;
+  try {
+    wordEntry = buildWordEntryFromResult(parseJsonObject(buffer), text);
+  } catch (err) {
+    console.warn('Streaming JSON parse failed, retrying lookup:', err);
+    wordEntry = await lookupWord(text, userLevel);
+  }
   yield { partial: {}, complete: wordEntry };
 }
 
@@ -299,6 +309,51 @@ export const lookupConjugations = async (
   }
 };
 
+// --- 扩展变位（懒加载）---
+
+export const fetchExtendedConjugations = async (infinitive: string): Promise<VerbConjugation[]> => {
+  const isReflexive = infinitive.startsWith("se ") || infinitive.startsWith("s'");
+  const reflexiveNote = isReflexive ? `注意：这是代词式/自反动词，每个人称必须包含对应反身代词。` : '';
+  const prompt = `仅返回JSON数组，给出法语动词"${infinitive}"以下5个时态的变位，不含任何Markdown标记。${reflexiveNote}时态：Imparfait 直陈未完成过去时（6人称）、Futur simple 直陈简单将来时（6人称）、Conditionnel présent 条件式现在时（6人称）、Subjonctif présent 虚拟式现在时（6人称，含que）、Impératif présent 命令式（仅tu/nous/vous三行，无主语）。格式：[{"tense":"时态名","forms":["je/tu/il.../que je... xxx",...]}]`;
+  try {
+    const data = await fetchDeepSeek('/chat/completions', {
+      model: "deepseek-chat",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2
+    });
+    const match = data.choices[0].message.content.match(/\[[\s\S]*\]/);
+    return match ? JSON.parse(match[0]) : [];
+  } catch {
+    return [];
+  }
+};
+
+// --- 固定搭配/短语（懒加载）---
+
+export interface Collocation {
+  phrase: string;
+  chinese: string;
+  example: string;
+  exampleChinese: string;
+}
+
+export const fetchCollocations = async (word: string, pos?: string, chineseDef?: string): Promise<Collocation[]> => {
+  const ctx = chineseDef ? `（${chineseDef}，词性：${pos || ''}）` : '';
+  const prompt = `你是法语词汇专家。列出法语单词"${word}"${ctx}的6-8个最常用固定搭配、惯用短语或常见表达。以JSON格式返回，不含任何Markdown标记：{"items":[{"phrase":"固定搭配或短语","chinese":"中文释义","example":"一个简短的法语例句","exampleChinese":"例句中文翻译"}]}`;
+  try {
+    const data = await fetchDeepSeek('/chat/completions', {
+      model: "deepseek-chat",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" },
+      temperature: 0.5
+    });
+    const parsed = parseJsonObject(data.choices[0].message.content);
+    return parsed.items || parsed.collocations || parsed.phrases || [];
+  } catch {
+    return [];
+  }
+};
+
 // --- AI 聊天答疑 ---
 
 export const chatWithWordContext = async (history: any[], message: string, word: WordEntry): Promise<string> => {
@@ -323,18 +378,18 @@ export const chatWithWordContext = async (history: any[], message: string, word:
 export async function* generateClozeStoryStream(words: string[], theme: string, level: CEFRLevel): AsyncGenerator<string> {
   const prompt = `
     作为专业的法语作家和语言学家，请为级别为 ${level} 的学生创作一篇关于 "${theme}" 的法语短文。
-    必须包含这些单词: ${words.join(', ')}。
-    
+    必须包含这些单词: ${words.join(', ')}。（单词格式说明：若单词附有 [时态] 标注，如 aller[Imparfait de l'indicatif]，则该动词必须用指定时态变位；无标注则用现在时）
+
     输出格式要求（极其重要）：
     TITLE: [一个吸引人的法语标题]
     [法语原文句子 1] ||| [中文翻译 1]
     [法语原文句子 2] ||| [中文翻译 2]
     ...
-    
+
     规则：
     1. 生成的法语文本必须100%语法正确、拼写正确，符合法语标准规范。
     2. 必须使用 {{单词}} 这种双大括号格式包裹你用到的那几个指定单词。若该单词是动词（原形），按以下规则处理：
-       a) 独立谓语动词：按主语正确变位后包裹（错误：le temps {{changer}} ✗；正确：le temps {{change}} ✓）；
+       a) 独立谓语动词：按主语正确变位后包裹，默认使用现在时（直陈式）。若单词附有 [时态] 标注（如 aller[Imparfait de l'indicatif]、vouloir[Conditionnel présent 条件式现在时]），必须严格使用该标注时态变位，绝对不得改为现在时（示例：aller[Imparfait] → il {{allait}}, nous {{allions}} ✓；vouloir[Conditionnel présent] → je {{voudrais}} ✓；faire[Passé composé] → il {{a fait}} ✓）。包裹时只写变位后的形式，不写[时态]标注本身。【极其重要】绝对禁止将动词原形直接用作谓语，这是严重语法错误：nous {{saluer}} ✗、je {{aller}} ✗、ils {{parler}} ✗、on {{habiter}} ✗；必须变位：nous {{saluons}} ✓、je {{vais}} ✓、ils {{parlent}} ✓、on {{habite}} ✓。检查每个句子：每一个谓语动词在 {{}} 内都必须是已变位的形式，不得使用不定式原形；
        b) 情态动词（pouvoir、vouloir、devoir、savoir、falloir）或 aller（近将来）后：动词本体保持原形（错误：je peux {{imagine}} ✗；正确：je peux {{imaginer}} ✓）；
        c) 代词式动词在情态动词后：反身代词按主语调整，但动词本体保持原形（错误：je dois {{me dépêche}} ✗；正确：je dois {{me dépêcher}} ✓；il doit {{se dépêcher}} ✓）；
        d) 在不同句子中使用不同人称（je/tu/il/elle/nous/vous/ils/elles），充分训练各人称用法。
@@ -344,15 +399,14 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
     6. 使用标准的法语词汇和表达方式，避免俚语或不标准的用法。
     7. 【反身代词变位规则】代词式动词（如 se lever、s'asseoir、se dépêcher）在句中使用时，反身代词必须与主语人称严格一致，绝对不能直接照搬原形中的 se/s'：主语 je → me/m'，tu → te/t'，il/elle/on → se/s'，nous → nous，vous → vous，ils/elles → se/s'。错误示例：nous pouvons s'asseoir ✗　正确示例：nous pouvons nous asseoir ✓；il doit se dépêcher ✓，je dois me dépêcher ✓。
     8. 【主有形容词变位规则】主有形容词（mon/ma/mes, ton/ta/tes, son/sa/ses, notre/nos, votre/vos, leur/leurs）须与句中主语的人称严格对应：主语 je → mon/ma/mes，tu → ton/ta/tes，il/elle → son/sa/ses，nous → notre/nos，vous → votre/vos，ils/elles → leur/leurs。绝对不能出现主语与主有形容词人称不符的情况。
-    9. 【省音规则（极其重要）】当以下词后接以元音（a, e, i, o, u, h muet）开头的单词时，必须使用省音形式，绝对不能写出原形：je → j'（如 j'ai, j'habite, j'aime, j'ouvre），me → m'（如 m'appelle, m'a dit），te → t'（如 t'aimes, t'a vu），se → s'（如 s'appelle, s'est levé），le/la → l'（如 l'ami, l'école），ne → n'（如 n'est, n'a pas），de → d'（如 d'un, d'abord），que → qu'（如 qu'il, qu'elle），si + il → s'il。错误示例：je ai ✗，je habite ✗，me appelle ✗；正确示例：j'ai ✓，j'habite ✓，m'appelle ✓。
+    9. 【省音规则（极其重要）】当以下词后接以元音（a, e, i, o, u, h muet）开头的单词时，必须使用省音形式，绝对不能写出原形：je → j'（如 j'ai, j'habite, j'aime, j'ouvre），me → m'（如 m'appelle, m'a dit），te → t'（如 t'aimes, t'a vu），se → s'（如 s'appelle, s'est levé），le/la → l'（如 l'ami, l'école），ne → n'（如 n'est, n'a pas），de → d'（如 d'un, d'abord），que → qu'（如 qu'il, qu'elle），si + il → s'il。错误示例：je ai ✗，je habite ✗，me appelle ✗；正确示例：j'ai ✓，j'habite ✓，m'appelle ✓。【特别注意】省音规则同样适用于被 {{}} 包裹的填空词：绝对禁止 "je {{appelle}}" ✗、"je {{habite}}" ✗、"me {{appelle}}" ✗，必须写成 "j'{{appelle}}" ✓、"j'{{habite}}" ✓、"m'{{appelle}}" ✓。填空词被大括号包裹不能成为跳过省音的理由。
   `;
   
   try {
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: "deepseek-chat",
@@ -435,8 +489,7 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: "deepseek-chat",
@@ -484,6 +537,53 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
     console.error("Conjugation Story Streaming Error:", err);
   }
 }
+
+// --- 练习总结生成 ---
+
+export interface PracticeSummary {
+  errorTypes: Array<{ label: string; count: number }>;
+  suggestion: string;
+}
+
+export const generatePracticeSummary = async (
+  errors: Array<{
+    userAnswer: string;
+    correctAnswer: string;
+    context: string;
+    type: 'conjugation' | 'cloze';
+    infinitive?: string;
+    tense?: string;
+  }>,
+  total: number
+): Promise<PracticeSummary> => {
+  const errorList = errors.map((e, i) =>
+    e.type === 'conjugation'
+      ? `${i + 1}. ${e.infinitive}（${e.tense}）：学生写"${e.userAnswer}"，正确是"${e.correctAnswer}"`
+      : `${i + 1}. 填空"${e.userAnswer}"，正确是"${e.correctAnswer}"，上下文：${e.context}`
+  ).join('\n');
+
+  const prompt = `法语练习共 ${total} 题，出现以下 ${errors.length} 处错误：
+${errorList}
+
+请分析错误类型并给出建议。严格以JSON格式返回，不含Markdown：
+{
+  "errorTypes": [{"label": "错误类型简称（如：未完成过去时混淆、命令式拼写、重音错误）", "count": 次数}],
+  "suggestion": "1到2句中文学习建议，具体指出需要重点复习的语法点或词汇"
+}`;
+
+  try {
+    const data = await fetchDeepSeek('/chat/completions', {
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' },
+      max_tokens: 200,
+      temperature: 0.3,
+    });
+    return parseJsonObject(data.choices[0].message.content);
+  } catch {
+    return { errorTypes: [], suggestion: '' };
+  }
+};
 
 // --- 错误提示生成 ---
 

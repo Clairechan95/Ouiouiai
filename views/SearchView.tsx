@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Sparkles, Clock, Globe, Zap } from 'lucide-react';
+import { Search, Sparkles, Clock, Globe, Zap, Upload, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { lookupWord } from '../services/geminiService';
+import { WordEntry } from '../types';
 import { useAppContext } from '../App';
 import { CEFRLevel } from '../types';
 import { storage } from '../services/storageService';
@@ -9,7 +11,15 @@ import { storage } from '../services/storageService';
 const SearchView: React.FC = () => {
   const [input, setInput] = useState('');
   const navigate = useNavigate();
-  const { recentSearches, currentLevel, setLevel } = useAppContext();
+  const { recentSearches, currentLevel, setLevel, addToNotebook } = useAppContext();
+
+  // Batch import state
+  const [showBatch, setShowBatch] = useState(false);
+  const [batchInput, setBatchInput] = useState('');
+  interface BatchItem { word: string; status: 'pending' | 'loading' | 'done' | 'error'; }
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
+  const [importRunning, setImportRunning] = useState(false);
+  const [importDone, setImportDone] = useState(false);
 
   // 法语文本自动更正函数
   const autoCorrectFrenchText = (text: string): string => {
@@ -153,6 +163,48 @@ const SearchView: React.FC = () => {
     return corrected;
   };
 
+  const parseBatchWords = (text: string): string[] =>
+    text.split(/[\n,，;；]+/).map(w => w.trim()).filter(w => w.length > 0)
+      .filter((w, i, arr) => arr.indexOf(w) === i);
+
+  const runBatchImport = async () => {
+    const words = parseBatchWords(batchInput);
+    if (words.length === 0) return;
+    setBatchItems(words.map(w => ({ word: w, status: 'pending' })));
+    setImportRunning(true);
+    setImportDone(false);
+
+    for (let i = 0; i < words.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 800)); // avoid rate limiting
+      setBatchItems(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'loading' } : item));
+      let success = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 2000)); // retry delay
+          const result: WordEntry = await lookupWord(words[i], currentLevel);
+          storage.saveWordToCache(result);
+          addToNotebook(result);
+          setBatchItems(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'done' } : item));
+          success = true;
+          break;
+        } catch {}
+      }
+      if (!success) {
+        setBatchItems(prev => prev.map((item, idx) => idx === i ? { ...item, status: 'error' } : item));
+      }
+    }
+    setImportRunning(false);
+    setImportDone(true);
+  };
+
+  const closeBatch = () => {
+    if (importRunning) return;
+    setShowBatch(false);
+    setBatchInput('');
+    setBatchItems([]);
+    setImportDone(false);
+  };
+
   const handleSearch = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim()) return;
@@ -202,6 +254,17 @@ const SearchView: React.FC = () => {
             </button>
           </div>
         </form>
+
+        {/* Batch import button */}
+        <div className="flex justify-end -mt-6 mb-8">
+          <button
+            onClick={() => setShowBatch(true)}
+            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-primary font-bold transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            批量导入词汇
+          </button>
+        </div>
 
         {/* Level Selector */}
         <div className="mb-10">
@@ -255,6 +318,103 @@ const SearchView: React.FC = () => {
           </div>
         )}
       </div>
+      {/* Batch import modal */}
+      {showBatch && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <div>
+                <h3 className="font-black text-xl text-gray-800">批量导入词汇</h3>
+                <p className="text-sm text-gray-400 mt-0.5">每行一个词，或用逗号/分号分隔，AI 自动解析并存入词库</p>
+              </div>
+              <button onClick={closeBatch} disabled={importRunning} className="p-2 hover:bg-gray-100 rounded-2xl transition-colors text-gray-400 disabled:opacity-30">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {batchItems.length === 0 ? (
+                <textarea
+                  value={batchInput}
+                  onChange={e => setBatchInput(e.target.value)}
+                  placeholder={"amour\nmaison, soleil\nêtre, avoir, aller"}
+                  rows={7}
+                  className="w-full p-4 bg-gray-50 rounded-2xl text-gray-700 outline-none resize-none font-mono text-sm border border-gray-100 focus:border-primary/30 leading-relaxed"
+                />
+              ) : (
+                <>
+                  {/* Progress bar */}
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300"
+                      style={{ width: `${(batchItems.filter(b => b.status === 'done' || b.status === 'error').length / batchItems.length) * 100}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400 font-bold text-right">
+                    {batchItems.filter(b => b.status === 'done').length} / {batchItems.length} 完成
+                  </p>
+
+                  {/* Word list */}
+                  <div className="space-y-2">
+                    {batchItems.map((item, i) => (
+                      <div key={i} className={`flex items-center gap-3 px-4 py-3 rounded-2xl transition-all ${item.status === 'loading' ? 'bg-primary/5 border border-primary/10' : 'bg-gray-50'}`}>
+                        <div className="w-5 h-5 flex items-center justify-center shrink-0">
+                          {item.status === 'pending' && <div className="w-2 h-2 rounded-full bg-gray-300" />}
+                          {item.status === 'loading' && <Loader2 className="w-4 h-4 text-primary animate-spin" />}
+                          {item.status === 'done' && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                          {item.status === 'error' && <AlertCircle className="w-5 h-5 text-red-400" />}
+                        </div>
+                        <span className={`font-bold text-sm flex-1 ${item.status === 'error' ? 'text-red-400' : item.status === 'done' ? 'text-gray-800' : 'text-gray-500'}`}>
+                          {item.word}
+                        </span>
+                        {item.status === 'loading' && <span className="text-xs text-primary font-bold">AI 解析中...</span>}
+                        {item.status === 'done' && <span className="text-xs text-green-500 font-bold">已存入词库</span>}
+                        {item.status === 'error' && <span className="text-xs text-red-400 font-bold">查询失败</span>}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {importDone && (
+                <div className="bg-green-50 border border-green-100 rounded-2xl p-5 text-center">
+                  <p className="font-black text-green-700 mb-1">
+                    🎉 导入完成
+                  </p>
+                  <p className="text-sm text-green-600 mb-4">
+                    {batchItems.filter(b => b.status === 'done').length} 个词汇已加入词库
+                    {batchItems.filter(b => b.status === 'error').length > 0 && `，${batchItems.filter(b => b.status === 'error').length} 个失败`}
+                  </p>
+                  <button
+                    onClick={() => { closeBatch(); navigate('/notebook'); }}
+                    className="bg-primary text-white px-8 py-3 rounded-2xl font-black text-sm shadow-lg shadow-primary/20"
+                  >
+                    前往词库查看 →
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Footer: start button */}
+            {batchItems.length === 0 && (
+              <div className="p-6 border-t border-gray-100">
+                <button
+                  onClick={runBatchImport}
+                  disabled={parseBatchWords(batchInput).length === 0}
+                  className="w-full bg-primary text-white py-4 rounded-2xl font-black disabled:opacity-40 flex items-center justify-center gap-2 shadow-xl shadow-primary/20 active:scale-95 transition-all"
+                >
+                  <Upload className="w-5 h-5" />
+                  {parseBatchWords(batchInput).length > 0
+                    ? `开始导入 ${parseBatchWords(batchInput).length} 个词汇`
+                    : '请输入词汇'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

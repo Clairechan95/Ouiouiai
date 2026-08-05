@@ -2,10 +2,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Languages, RefreshCw, Info, Check, Save, FileText, Headphones, Clock, Trash2, Play, Pause } from 'lucide-react';
 import { useAppContext } from '../App';
-import { generateConjugationStoryStream, generateErrorHint } from '../services/geminiService';
+import { generateConjugationStoryStream, generateErrorHint, generatePracticeSummary, PracticeSummary } from '../services/geminiService';
 import { logFeatureEvent, logWrongAnswers } from '../services/analyticsService';
 import { SavedStory, WrongAnswer } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
+import { cancelSpeech, speakFrench } from '../services/speechService';
 
 const buildConjHTMLPlayer = (title: string, subtitle: string, items: { id: number; fr: string; cn: string }[]) => `<!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -84,6 +85,9 @@ const ConjugationView: React.FC = () => {
   const [userInputs, setUserInputs] = useState<{ [key: string]: string }>({});
   const [showResults, setShowResults] = useState(false);
   const [hints, setHints] = useState<{ [inputKey: string]: string }>({});
+  const [summary, setSummary] = useState<PracticeSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [wrongCount, setWrongCount] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlayingIdx, setCurrentPlayingIdx] = useState(-1);
   const isPlayingRef = useRef(false);
@@ -95,13 +99,13 @@ const ConjugationView: React.FC = () => {
   };
 
   const stopGlobalSpeech = () => {
-    window.speechSynthesis.cancel();
+    cancelSpeech();
     isPlayingRef.current = false;
     setIsPlaying(false);
     setCurrentPlayingIdx(-1);
   };
 
-  const playFromSentence = (idx: number, segments: Segment[]) => {
+  const playFromSentence = async (idx: number, segments: Segment[]) => {
     if (!isPlayingRef.current || idx >= segments.length) {
       isPlayingRef.current = false;
       setIsPlaying(false);
@@ -110,15 +114,16 @@ const ConjugationView: React.FC = () => {
     }
     setCurrentPlayingIdx(idx);
     const text = segments[idx].french.replace(/\{\{(.*?)\|.*?\|.*?\}\}/g, '$1');
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const frVoice = voices.find(v => v.lang.startsWith('fr'));
-    if (frVoice) utterance.voice = frVoice;
-    utterance.lang = 'fr-FR';
-    utterance.rate = 0.85;
-    utterance.onend = () => setTimeout(() => playFromSentence(idx + 1, segments), 500);
-    utterance.onerror = () => { isPlayingRef.current = false; setIsPlaying(false); setCurrentPlayingIdx(-1); };
-    window.speechSynthesis.speak(utterance);
+    await speakFrench(text, {
+      onEnd: () => {
+        if (isPlayingRef.current) setTimeout(() => void playFromSentence(idx + 1, segments), 500);
+      },
+      onError: () => {
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+        setCurrentPlayingIdx(-1);
+      },
+    });
   };
 
   const playFullStory = () => {
@@ -131,10 +136,10 @@ const ConjugationView: React.FC = () => {
 
   const seekTo = (idx: number) => {
     if (!story) return;
-    window.speechSynthesis.cancel();
+    cancelSpeech();
     isPlayingRef.current = true;
     setIsPlaying(true);
-    playFromSentence(idx, story.segments);
+    void playFromSentence(idx, story.segments);
   };
 
   useEffect(() => {
@@ -188,10 +193,21 @@ const ConjugationView: React.FC = () => {
     }
     setShowResults(true);
     setHints({});
+    setWrongCount(wrongs.length);
+    setSummary(null);
+
     wrongKeys.forEach(({ inputKey, answer, userAnswer, infinitive, tense, context }) => {
       generateErrorHint({ userAnswer, correctAnswer: answer, context, type: 'conjugation', infinitive, tense })
         .then(hint => { if (hint) setHints(prev => ({ ...prev, [inputKey]: hint })); });
     });
+
+    if (wrongKeys.length > 0) {
+      setSummaryLoading(true);
+      generatePracticeSummary(
+        wrongKeys.map(w => ({ userAnswer: w.userAnswer, correctAnswer: w.answer, context: w.context, type: 'conjugation', infinitive: w.infinitive, tense: w.tense })),
+        story!.segments.length
+      ).then(s => { setSummary(s); setSummaryLoading(false); });
+    }
   };
 
   const toggleVerb = (verb: string) => {
@@ -219,6 +235,9 @@ const ConjugationView: React.FC = () => {
     setShowResults(false);
     setUserInputs({});
     setHints({});
+    setSummary(null);
+    setSummaryLoading(false);
+    setWrongCount(0);
 
     try {
       const stream = generateConjugationStoryStream(verbsToUse, tensesToUse, currentLevel);
@@ -607,6 +626,39 @@ const ConjugationView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {showResults && (
+            <div className="mb-6 bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">本次练习总结</p>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="text-2xl font-black text-gray-800">
+                  {story.segments.length - wrongCount} / {story.segments.length}
+                </span>
+                {wrongCount === 0
+                  ? <span className="text-sm font-bold text-green-600 bg-green-50 px-3 py-1 rounded-full">🎉 全部正确！</span>
+                  : <span className="text-sm font-bold text-red-500 bg-red-50 px-3 py-1 rounded-full">❌ {wrongCount} 处错误</span>
+                }
+              </div>
+              {wrongCount > 0 && (
+                summaryLoading ? (
+                  <p className="text-sm text-gray-400 animate-pulse">AI 正在归纳错误类型...</p>
+                ) : summary && (
+                  <>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {summary.errorTypes.map((et, i) => (
+                        <span key={i} className="px-3 py-1 bg-red-50 border border-red-100 text-red-600 rounded-full text-xs font-bold">
+                          {et.label} ×{et.count}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 text-sm text-amber-800 leading-relaxed">
+                      💡 {summary.suggestion}
+                    </div>
+                  </>
+                )
+              )}
+            </div>
+          )}
 
           <div className="space-y-1 mb-10">
             {story.segments.map((seg, i) => renderSegment(seg, i))}

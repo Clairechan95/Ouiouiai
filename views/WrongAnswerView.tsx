@@ -1,10 +1,10 @@
 
 import React, { useState, useRef } from 'react';
-import { Trash2, CheckCircle, Circle, Languages, PenTool, RotateCcw, Check, X } from 'lucide-react';
+import { Trash2, CheckCircle, Circle, Languages, PenTool, RotateCcw, Check, X, Download, Mic } from 'lucide-react';
 import { useAppContext } from '../App';
 import AudioPlayer from '../components/AudioPlayer';
 
-type FilterType = 'all' | 'conjugation' | 'cloze' | 'mastered';
+type FilterType = 'all' | 'conjugation' | 'cloze' | 'dictation' | 'mastered';
 
 // 每道题的重做状态
 interface RetryState {
@@ -35,12 +35,14 @@ const WrongAnswerView: React.FC = () => {
   const unmasteredCount = wrongAnswers.filter(w => !w.mastered).length;
   const conjugationCount = wrongAnswers.filter(w => !w.mastered && w.sourceType === 'conjugation').length;
   const clozeCount = wrongAnswers.filter(w => !w.mastered && w.sourceType === 'cloze').length;
+  const dictationCount = wrongAnswers.filter(w => !w.mastered && w.sourceType === 'dictation').length;
   const masteredCount = wrongAnswers.filter(w => w.mastered).length;
 
   const tabs: { key: FilterType; label: string; count: number }[] = [
     { key: 'all', label: '待复习', count: unmasteredCount },
     { key: 'conjugation', label: '变位练习', count: conjugationCount },
     { key: 'cloze', label: '创意听写', count: clozeCount },
+    { key: 'dictation', label: '整句听写', count: dictationCount },
     { key: 'mastered', label: '已掌握', count: masteredCount },
   ];
 
@@ -64,6 +66,33 @@ const WrongAnswerView: React.FC = () => {
     }
   };
 
+  const exportToCSV = () => {
+    const headers = ['日期', '类型', '正确答案', '我的答案', '例句', '中文翻译', '动词原形', '时态', '主题', '是否已掌握'];
+    const rows = wrongAnswers.map(item => [
+      new Date(item.createdAt).toLocaleDateString('zh-CN'),
+      item.sourceType === 'conjugation' ? '变位练习' : '创意听写',
+      item.answer,
+      item.userAnswer,
+      item.context.replace('_____', `[${item.answer}]`),
+      item.chinese,
+      item.infinitive || '',
+      item.tense || '',
+      item.theme || '',
+      item.mastered ? '是' : '否',
+    ]);
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `OuiOuiAI错题本_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('导出成功 ✓');
+  };
+
   // 重置重做状态（再试一次）
   const resetRetry = (id: string) => {
     setRetryMap(prev => ({ ...prev, [id]: { input: '', submitted: false, correct: false } }));
@@ -81,7 +110,18 @@ const WrongAnswerView: React.FC = () => {
 
       {/* Header */}
       <header className="mb-6">
-        <h1 className="text-3xl font-black text-gray-800 mb-1">错题本</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-black text-gray-800 mb-1">错题本</h1>
+          {wrongAnswers.length > 0 && (
+            <button
+              onClick={exportToCSV}
+              className="flex items-center gap-1.5 text-sm font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-2xl transition-colors"
+              title="导出全部错题为 CSV"
+            >
+              <Download className="w-4 h-4" /> 导出
+            </button>
+          )}
+        </div>
         <p className="text-gray-400 text-sm">
           共 {wrongAnswers.length} 道错题，{unmasteredCount} 道待复习
         </p>
@@ -147,6 +187,10 @@ const WrongAnswerView: React.FC = () => {
                     <span className="flex items-center gap-1 bg-violet-50 text-violet-600 text-xs font-bold px-2.5 py-1 rounded-xl">
                       <Languages className="w-3 h-3" /> 变位练习
                     </span>
+                  ) : item.sourceType === 'dictation' ? (
+                    <span className="flex items-center gap-1 bg-teal-50 text-teal-600 text-xs font-bold px-2.5 py-1 rounded-xl">
+                      <Mic className="w-3 h-3" /> 整句听写
+                    </span>
                   ) : (
                     <span className="flex items-center gap-1 bg-indigo-50 text-indigo-600 text-xs font-bold px-2.5 py-1 rounded-xl">
                       <PenTool className="w-3 h-3" /> 创意听写
@@ -160,8 +204,8 @@ const WrongAnswerView: React.FC = () => {
                   )}
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* 重做按钮（非重做模式时显示） */}
-                  {!isRetrying && !item.mastered && (
+                  {/* 重做按钮（非重做模式 & 非整句听写时显示） */}
+                  {!isRetrying && !item.mastered && item.sourceType !== 'dictation' && (
                     <button
                       onClick={() => startRetry(item.id)}
                       className="flex items-center gap-1 text-xs font-bold text-primary bg-primary/5 hover:bg-primary/10 px-3 py-1.5 rounded-xl transition-colors"
@@ -186,73 +230,90 @@ const WrongAnswerView: React.FC = () => {
               </div>
 
               {/* Context Sentence */}
-              <div className="flex items-start gap-3 mb-3">
-                <AudioPlayer
-                  text={item.context.replace(/_____/g, item.answer)}
-                  className="shrink-0 bg-gray-50 text-gray-400 w-9 h-9"
-                />
-                <p className="text-base text-gray-700 font-medium leading-relaxed">
-                  {item.context.split('_____').map((part, i, arr) => (
-                    <React.Fragment key={i}>
-                      {part}
-                      {i < arr.length - 1 && (
-                        isRetrying ? (
-                          // 重做模式：显示输入框
-                          <span className="inline-flex items-center gap-1 mx-1 align-middle">
-                            {!retry.submitted ? (
-                              <>
-                                <input
-                                  ref={el => { inputRefs.current[item.id] = el; }}
-                                  type="text"
-                                  value={retry.input}
-                                  onChange={e => setRetryMap(prev => ({
-                                    ...prev,
-                                    [item.id]: { ...prev[item.id], input: e.target.value }
-                                  }))}
-                                  onKeyDown={e => e.key === 'Enter' && submitRetry(item.id, item.answer)}
-                                  className="border-b-2 border-primary/40 bg-primary/5 text-center text-primary font-bold w-24 px-2 py-0.5 outline-none focus:border-primary rounded-t-lg text-sm"
-                                  placeholder="___"
-                                />
-                                <button
-                                  onClick={() => submitRetry(item.id, item.answer)}
-                                  className="bg-primary text-white w-7 h-7 rounded-full flex items-center justify-center shrink-0 hover:bg-primary/80 transition-colors"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            ) : retry.correct ? (
-                              <span className="bg-green-100 text-green-600 border border-green-200 px-2.5 py-0.5 rounded-lg font-bold text-sm flex items-center gap-1">
-                                <Check className="w-3 h-3" /> {item.answer}
+              {item.sourceType === 'dictation' ? (
+                // 整句听写：显示正确整句 + 你写的对比
+                <div className="mb-3">
+                  <div className="flex items-start gap-3 mb-2">
+                    <AudioPlayer
+                      text={item.answer}
+                      className="shrink-0 bg-gray-50 text-gray-400 w-9 h-9"
+                    />
+                    <p className="text-base text-gray-700 font-medium leading-relaxed">{item.answer}</p>
+                  </div>
+                  <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2 text-sm text-red-400 mt-2">
+                    <span className="font-bold text-red-500 mr-1">你写的：</span>
+                    {item.userAnswer || '（未填写）'}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3 mb-3">
+                  <AudioPlayer
+                    text={item.context.replace(/_____/g, item.answer)}
+                    className="shrink-0 bg-gray-50 text-gray-400 w-9 h-9"
+                  />
+                  <p className="text-base text-gray-700 font-medium leading-relaxed">
+                    {item.context.split('_____').map((part, i, arr) => (
+                      <React.Fragment key={i}>
+                        {part}
+                        {i < arr.length - 1 && (
+                          isRetrying ? (
+                            // 重做模式：显示输入框
+                            <span className="inline-flex items-center gap-1 mx-1 align-middle">
+                              {!retry.submitted ? (
+                                <>
+                                  <input
+                                    ref={el => { inputRefs.current[item.id] = el; }}
+                                    type="text"
+                                    value={retry.input}
+                                    onChange={e => setRetryMap(prev => ({
+                                      ...prev,
+                                      [item.id]: { ...prev[item.id], input: e.target.value }
+                                    }))}
+                                    onKeyDown={e => e.key === 'Enter' && submitRetry(item.id, item.answer)}
+                                    className="border-b-2 border-primary/40 bg-primary/5 text-center text-primary font-bold w-24 px-2 py-0.5 outline-none focus:border-primary rounded-t-lg text-sm"
+                                    placeholder="___"
+                                  />
+                                  <button
+                                    onClick={() => submitRetry(item.id, item.answer)}
+                                    className="bg-primary text-white w-7 h-7 rounded-full flex items-center justify-center shrink-0 hover:bg-primary/80 transition-colors"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </button>
+                                </>
+                              ) : retry.correct ? (
+                                <span className="bg-green-100 text-green-600 border border-green-200 px-2.5 py-0.5 rounded-lg font-bold text-sm flex items-center gap-1">
+                                  <Check className="w-3 h-3" /> {item.answer}
+                                </span>
+                              ) : (
+                                <>
+                                  <span className="bg-red-50 text-red-500 border border-red-200 px-2 py-0.5 rounded-lg font-bold text-sm line-through">
+                                    {retry.input || '?'}
+                                  </span>
+                                  <span className="text-gray-400 text-xs">→</span>
+                                  <span className="bg-green-50 text-green-600 border border-green-200 px-2 py-0.5 rounded-lg font-bold text-sm">
+                                    {item.answer}
+                                  </span>
+                                </>
+                              )}
+                            </span>
+                          ) : (
+                            // 查看模式：显示错误答案 → 正确答案
+                            <span className="inline-flex items-center gap-1 mx-1">
+                              <span className="bg-red-50 text-red-500 border border-red-200 px-2 py-0.5 rounded-lg font-bold text-sm line-through">
+                                {item.userAnswer || '?'}
                               </span>
-                            ) : (
-                              <>
-                                <span className="bg-red-50 text-red-500 border border-red-200 px-2 py-0.5 rounded-lg font-bold text-sm line-through">
-                                  {retry.input || '?'}
-                                </span>
-                                <span className="text-gray-400 text-xs">→</span>
-                                <span className="bg-green-50 text-green-600 border border-green-200 px-2 py-0.5 rounded-lg font-bold text-sm">
-                                  {item.answer}
-                                </span>
-                              </>
-                            )}
-                          </span>
-                        ) : (
-                          // 查看模式：显示错误答案 → 正确答案
-                          <span className="inline-flex items-center gap-1 mx-1">
-                            <span className="bg-red-50 text-red-500 border border-red-200 px-2 py-0.5 rounded-lg font-bold text-sm line-through">
-                              {item.userAnswer || '?'}
+                              <span className="text-gray-400 text-xs">→</span>
+                              <span className="bg-green-50 text-green-600 border border-green-200 px-2 py-0.5 rounded-lg font-bold text-sm">
+                                {item.answer}
+                              </span>
                             </span>
-                            <span className="text-gray-400 text-xs">→</span>
-                            <span className="bg-green-50 text-green-600 border border-green-200 px-2 py-0.5 rounded-lg font-bold text-sm">
-                              {item.answer}
-                            </span>
-                          </span>
-                        )
-                      )}
-                    </React.Fragment>
-                  ))}
-                </p>
-              </div>
+                          )
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </div>
+              )}
 
               {/* Chinese Translation */}
               <p className="text-gray-400 text-sm italic border-l-4 border-gray-100 pl-3 mb-3">

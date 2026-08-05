@@ -15,6 +15,8 @@ import { storage } from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import * as cloud from './services/cloudStorageService';
 
+const ListeningLessonView = React.lazy(() => import('./views/ListeningLessonView'));
+
 interface AppState {
   user: User | null;
   authLoading: boolean;
@@ -127,7 +129,8 @@ const App: React.FC = () => {
   // ─── 生词本操作 ──────────────────────────────────────────────────────────
 
   const addToNotebook = (word: WordEntry) => {
-    if (notebook.find(item => item.id === word.id)) return;
+    const normalizedText = word.text.trim().toLocaleLowerCase('fr-FR');
+    if (notebook.find(item => item.id === word.id || item.text.trim().toLocaleLowerCase('fr-FR') === normalizedText)) return;
     const item: NotebookItem = { ...word, masteryLevel: 0 };
     setNotebook(prev => [...prev, item]);
     if (user) cloud.upsertNotebookItem(item);
@@ -215,6 +218,14 @@ const App: React.FC = () => {
             <Route path="/conjugation" element={<ConjugationView />} />
             <Route path="/wrong-answers" element={<WrongAnswerView />} />
             <Route path="/auth" element={<AuthView />} />
+            <Route
+              path="/listening/se-presenter"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
+                  <ListeningLessonView />
+                </React.Suspense>
+              )}
+            />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </Layout>

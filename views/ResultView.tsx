@@ -1,9 +1,9 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, ShieldAlert, Layers } from 'lucide-react';
+import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, ShieldAlert, Layers, ChevronDown, ChevronUp, Link2 } from 'lucide-react';
 import { useAppContext } from '../App';
-import { lookupWordStreaming, lookupConjugations, generateWordImages, chatWithWordContext, PartialWordData } from '../services/geminiService';
+import { lookupWordStreaming, lookupConjugations, generateWordImages, chatWithWordContext, PartialWordData, fetchExtendedConjugations, fetchCollocations, Collocation } from '../services/geminiService';
 import { storage } from '../services/storageService';
 import { WordEntry, ChatMessage } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
@@ -39,6 +39,14 @@ const ResultView: React.FC = () => {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Lazy-loaded expandable sections
+  const [extConjOpen, setExtConjOpen] = useState(false);
+  const [extConjLoading, setExtConjLoading] = useState(false);
+  const [extConj, setExtConj] = useState<import('../types').VerbConjugation[] | null>(null);
+  const [collocOpen, setCollocOpen] = useState(false);
+  const [collocLoading, setCollocLoading] = useState(false);
+  const [collocs, setCollocs] = useState<Collocation[] | null>(null);
+
   const decodedQuery = query ? decodeURIComponent(query) : '';
 
   // Rotate tips and advance loading steps during initial loading
@@ -68,7 +76,14 @@ const ResultView: React.FC = () => {
   }, [query]);
 
   useEffect(() => {
-    if (data && notebook.find(n => n.id === data.id)) setSaved(true);
+    if (!data) {
+      setSaved(false);
+      return;
+    }
+    setSaved(Boolean(notebook.find(n => (
+      n.id === data.id
+      || n.text.trim().toLocaleLowerCase('fr-FR') === data.text.trim().toLocaleLowerCase('fr-FR')
+    ))));
   }, [data, notebook]);
 
   const loadData = async (text: string) => {
@@ -107,6 +122,29 @@ const ResultView: React.FC = () => {
       setError(err.message || "请求 AI 时出错，请检查网络环境。");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleExtConj = async () => {
+    const opening = !extConjOpen;
+    setExtConjOpen(opening);
+    if (opening && extConj === null && data) {
+      setExtConjLoading(true);
+      const infinitive = data.detectedForm?.infinitive || data.text;
+      const result = await fetchExtendedConjugations(infinitive);
+      setExtConj(result);
+      setExtConjLoading(false);
+    }
+  };
+
+  const handleToggleColloc = async () => {
+    const opening = !collocOpen;
+    setCollocOpen(opening);
+    if (opening && collocs === null && data) {
+      setCollocLoading(true);
+      const result = await fetchCollocations(data.text, data.pos, data.chineseDefinition);
+      setCollocs(result);
+      setCollocLoading(false);
     }
   };
 
@@ -261,7 +299,7 @@ const ResultView: React.FC = () => {
       </div>
       <div className="pt-4 border-t border-gray-100">
         <p className="text-[11px] text-gray-400 uppercase font-black tracking-widest mb-2">诊断提示</p>
-        <p className="text-[10px] text-gray-400 leading-tight">请确认 DeepSeek API 密钥已正确配置，并检查本地网络是否能访问 api.deepseek.com。</p>
+        <p className="text-[10px] text-gray-400 leading-tight">请检查网络后重试；国内网络将通过 OuiOui AI 代理访问 DeepSeek 服务。</p>
       </div>
     </div>
   );
@@ -396,6 +434,106 @@ const ResultView: React.FC = () => {
               ))}
             </div>
           </div>
+
+          {/* 固定搭配 & 常用短语（懒加载） */}
+          <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
+            <button
+              onClick={handleToggleColloc}
+              className="w-full flex items-center justify-between p-5 sm:p-8 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2 sm:gap-3">
+                <Link2 className="w-5 h-5 sm:w-6 sm:h-6 text-accent" />
+                <span className="text-base sm:text-xl font-black text-gray-800">固定搭配 & 常用短语</span>
+                {!collocOpen && <span className="text-xs text-gray-400 font-bold ml-1">点击加载</span>}
+              </div>
+              {collocOpen ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+            </button>
+            {collocOpen && (
+              <div className="px-5 sm:px-8 pb-6 sm:pb-8 border-t border-gray-50">
+                {collocLoading ? (
+                  <div className="py-6 flex items-center gap-2 text-gray-400">
+                    <Sparkles className="w-4 h-4 animate-pulse text-accent" />
+                    <span className="text-sm font-bold animate-pulse">AI 正在整理搭配...</span>
+                  </div>
+                ) : collocs && collocs.length > 0 ? (
+                  <div className="mt-4 divide-y divide-gray-50">
+                    {collocs.map((c, i) => (
+                      <div key={i} className="py-3 sm:py-4">
+                        <div className="flex items-baseline gap-3 mb-1">
+                          <span className="font-black text-primary text-sm sm:text-base">{c.phrase}</span>
+                          <span className="text-gray-600 font-bold text-sm">{c.chinese}</span>
+                        </div>
+                        {c.example && (
+                          <div className="flex items-start gap-2 mt-1">
+                            <AudioPlayer text={c.example} className="w-6 h-6 shrink-0 opacity-50 hover:opacity-100 mt-0.5" />
+                            <div>
+                              <p className="text-sm text-gray-700 italic">{c.example}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{c.exampleChinese}</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-4 text-sm text-gray-400">暂无搭配数据</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 更多变位（懒加载，仅动词） */}
+          {(data.isVerb || (data.pos && data.pos.startsWith('v'))) && (
+            <div className="bg-white rounded-[2rem] sm:rounded-[2.5rem] shadow-sm border border-gray-100 overflow-hidden">
+              <button
+                onClick={handleToggleExtConj}
+                className="w-full flex items-center justify-between p-5 sm:p-8 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-secondary" />
+                  <span className="text-base sm:text-xl font-black text-gray-800">更多变位时态</span>
+                  {!extConjOpen && <span className="text-xs text-gray-400 font-bold ml-1">未完成过去时 · 将来时 · 条件式 · 虚拟式 · 命令式</span>}
+                </div>
+                {extConjOpen ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+              </button>
+              {extConjOpen && (
+                <div className="px-5 sm:px-8 pb-6 sm:pb-8 border-t border-gray-50">
+                  {extConjLoading ? (
+                    <div className="py-6 flex items-center gap-2 text-gray-400">
+                      <BookOpen className="w-4 h-4 animate-pulse text-secondary" />
+                      <span className="text-sm font-bold animate-pulse">正在加载变位...</span>
+                    </div>
+                  ) : extConj && extConj.length > 0 ? (
+                    <div className="mt-4 space-y-4 sm:space-y-5">
+                      {extConj.map((conj, idx) => (
+                        <div key={idx} className="bg-gray-50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-gray-100">
+                          <h4 className="mb-2 sm:mb-3">
+                            <span className="font-black text-secondary text-[11px] sm:text-[12px]">{conj.tense.split(' ')[0]}</span>
+                            {conj.tense.includes(' ') && (
+                              <span className="text-gray-400 text-[10px] sm:text-[11px] font-medium ml-1.5">{conj.tense.slice(conj.tense.indexOf(' ') + 1)}</span>
+                            )}
+                          </h4>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            {[conj.forms.slice(0, Math.ceil(conj.forms.length / 2)), conj.forms.slice(Math.ceil(conj.forms.length / 2))].map((col, ci) => (
+                              <div key={ci} className="space-y-1">
+                                {col.map((form, i) => (
+                                  <div key={i} className="px-2.5 py-1.5 rounded-lg text-[12px] sm:text-[13px] font-medium bg-white/80 text-gray-700 leading-snug">
+                                    {form}
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="py-4 text-sm text-gray-400">暂无数据</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="space-y-6 sm:space-y-8">

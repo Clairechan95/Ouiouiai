@@ -1,27 +1,16 @@
 
-import React, { useEffect } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Book, PenTool, GraduationCap, Languages, AlertCircle, LogIn, LogOut, User } from 'lucide-react';
+import { Search, Book, PenTool, GraduationCap, Languages, AlertCircle, LogIn, LogOut, User, Volume2 } from 'lucide-react';
 import { useAppContext } from '../App';
+const VoiceCheckModal = lazy(() => import('./VoiceCheckModal'));
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { notebook, wrongAnswers, user, signOut } = useAppContext();
   const unmasteredCount = wrongAnswers.filter(w => !w.mastered).length;
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
-  // 预热浏览器 TTS 引擎，减少首次播放延迟/卡顿
-  useEffect(() => {
-    if (!('speechSynthesis' in window)) return;
-    // 先加载语音列表
-    window.speechSynthesis.getVoices();
-    // 用零音量静默发言来初始化引擎
-    const warmup = new SpeechSynthesisUtterance(' ');
-    warmup.volume = 0;
-    warmup.rate = 2;
-    window.speechSynthesis.speak(warmup);
-    const t = setTimeout(() => window.speechSynthesis.cancel(), 300);
-    return () => clearTimeout(t);
-  }, []);
   const todayStart = new Date().setHours(0, 0, 0, 0);
   const todayCount = notebook.filter(item => item.createdAt >= todayStart).length;
 
@@ -76,6 +65,13 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <p className="text-xs font-bold text-indigo-400 uppercase mb-1">学习进度</p>
             <p className="text-sm text-indigo-900 font-medium">今天已收藏 {todayCount} 个新词</p>
           </div>
+          <button
+            onClick={() => setVoiceModalOpen(true)}
+            className="mt-3 w-full flex items-center gap-2 px-4 py-3 rounded-2xl bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+          >
+            <Volume2 className="w-4 h-4" />
+            <span className="text-sm font-bold">语音检测</span>
+          </button>
         </div>
 
         {/* User section */}
@@ -116,24 +112,33 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
             <span className="font-bold text-gray-800">OuiOui AI</span>
           </div>
-          {user ? (
+          <div className="flex items-center gap-2">
             <button
-              onClick={signOut}
-              className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 hover:bg-red-50 hover:text-red-500 px-3 py-1.5 rounded-full transition-colors"
+              onClick={() => setVoiceModalOpen(true)}
+              className="flex items-center justify-center w-8 h-8 text-amber-600 bg-amber-50 rounded-full"
+              title="语音检测"
             >
-              <User className="w-3 h-3" />
-              <span className="max-w-[80px] truncate">{user.email?.split('@')[0]}</span>
-              <LogOut className="w-3 h-3" />
+              <Volume2 className="w-4 h-4" />
             </button>
-          ) : (
-            <Link
-              to="/auth"
-              className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-full font-bold transition-colors"
-            >
-              <LogIn className="w-3 h-3" />
-              登录
-            </Link>
-          )}
+            {user ? (
+              <button
+                onClick={signOut}
+                className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 hover:bg-red-50 hover:text-red-500 px-3 py-1.5 rounded-full transition-colors"
+              >
+                <User className="w-3 h-3" />
+                <span className="max-w-[80px] truncate">{user.email?.split('@')[0]}</span>
+                <LogOut className="w-3 h-3" />
+              </button>
+            ) : (
+              <Link
+                to="/auth"
+                className="flex items-center gap-1.5 text-xs text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-full font-bold transition-colors"
+              >
+                <LogIn className="w-3 h-3" />
+                登录
+              </Link>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10">
@@ -166,6 +171,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           );
         })}
       </nav>
+
+      {voiceModalOpen && (
+        <Suspense fallback={null}>
+          <VoiceCheckModal onClose={() => setVoiceModalOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 };
