@@ -63,6 +63,7 @@ const ListeningLessonView: React.FC = () => {
   const videoRange: VideoRange = step === 3 || step === 4
     ? { start: activeSpeaker.start, end: activeSpeaker.end, label: `${activeSpeaker.name} 片段` }
     : LISTENING_FULL_RANGE;
+  const videoSrc = step === 3 || step === 4 ? activeSpeaker.video : LISTENING_VIDEO;
 
   const goToStep = (nextStep: number) => {
     const bounded = Math.max(0, Math.min(STEP_LABELS.length - 1, nextStep));
@@ -644,13 +645,13 @@ const ListeningLessonView: React.FC = () => {
         })}
       </nav>
 
-      <div className="mt-5 grid lg:grid-cols-[0.88fr_1.12fr] gap-5 items-start">
+      <div className="mt-5 grid lg:grid-cols-[1.15fr_0.85fr] gap-5 items-start">
         <section className="lg:sticky lg:top-5">
           <div className="flex items-center gap-2 text-xs font-bold text-primary">
             <Headphones className="w-4 h-4" />原速真听力 · 分步策略训练
           </div>
           <p className="mt-2 mb-3 text-sm text-gray-500">外国学生分享他们在法国学习和生活的经历。</p>
-          <SegmentVideoPlayer ref={playerRef} src={LISTENING_VIDEO} range={videoRange} />
+          <SegmentVideoPlayer ref={playerRef} src={videoSrc} range={videoRange} />
           <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-gray-400">
             <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
             {step === 0 && '先观察人物和场景，不提前显示目标词汇。'}

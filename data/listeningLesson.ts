@@ -21,6 +21,7 @@ export interface ListeningVocabulary {
 export interface ListeningSpeaker {
   id: ListeningSpeakerId;
   name: string;
+  video: string;
   start: number;
   end: number;
   nationality: string;
@@ -33,8 +34,8 @@ export interface ListeningSpeaker {
   vocabulary: ListeningVocabulary[];
 }
 
-export const LISTENING_VIDEO = '/listening/se-presenter.mp4';
-export const LISTENING_FULL_RANGE = { start: 32, end: 62.3, label: '完整训练片段' };
+export const LISTENING_VIDEO = '/listening/se-presenter-full.mp4';
+export const LISTENING_FULL_RANGE = { start: 0, end: 30.3, label: '完整训练片段' };
 
 export const NATIONALITY_OPTIONS = ['Coréenne', 'Indien', 'Ukrainienne'];
 export const DETAIL_OPTIONS = [
@@ -47,8 +48,9 @@ export const LISTENING_SPEAKERS: ListeningSpeaker[] = [
   {
     id: 'jeena',
     name: 'Jeena',
-    start: 32,
-    end: 45.7,
+    video: '/listening/se-presenter-jeena.mp4',
+    start: 0,
+    end: 13.7,
     nationality: 'Coréenne',
     detail: 'Séoul · Paris depuis 1 an',
     keywords: ['21 ans', 'Paris', 'depuis un an', 'Coréenne', 'Séoul'],
@@ -101,8 +103,9 @@ export const LISTENING_SPEAKERS: ListeningSpeaker[] = [
   {
     id: 'josh',
     name: 'Josh',
-    start: 45.7,
-    end: 54.5,
+    video: '/listening/se-presenter-josh.mp4',
+    start: 0,
+    end: 8.8,
     nationality: 'Indien',
     detail: 'France depuis 3 ans',
     keywords: ['Indien', "s'installer", 'France', 'trois ans', 'adorer'],
@@ -157,8 +160,9 @@ export const LISTENING_SPEAKERS: ListeningSpeaker[] = [
   {
     id: 'daria',
     name: 'Daria',
-    start: 54.5,
-    end: 62.3,
+    video: '/listening/se-presenter-daria.mp4',
+    start: 0,
+    end: 7.8,
     nationality: 'Ukrainienne',
     detail: 'Études à la Sorbonne',
     keywords: ['Ukrainienne', 'venir en France', 'faire ses études', 'la Sorbonne'],

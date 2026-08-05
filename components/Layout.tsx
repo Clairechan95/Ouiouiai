@@ -7,6 +7,7 @@ const VoiceCheckModal = lazy(() => import('./VoiceCheckModal'));
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const isListeningRoute = location.pathname.startsWith('/listening/');
   const { notebook, wrongAnswers, user, signOut } = useAppContext();
   const unmasteredCount = wrongAnswers.filter(w => !w.mastered).length;
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
@@ -142,7 +143,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
         </div>
 
-        <div className="flex-1 w-full max-w-4xl mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10">
+        <div className={`flex-1 w-full mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10 ${isListeningRoute ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {children}
         </div>
       </main>

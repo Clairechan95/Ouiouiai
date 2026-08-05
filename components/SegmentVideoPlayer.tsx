@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { AlertTriangle, Pause, Play, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Maximize2, RotateCcw } from 'lucide-react';
 
 export interface VideoRange {
   start: number;
@@ -24,7 +24,6 @@ const formatTime = (seconds: number) => {
 const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlayerProps>(
   ({ src, range }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
-    const [playing, setPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState(false);
 
@@ -42,10 +41,8 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
       video.currentTime = range.start;
       try {
         await video.play();
-        setPlaying(true);
       } catch {
         setError(true);
-        setPlaying(false);
       }
     };
 
@@ -55,27 +52,28 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
       const video = videoRef.current;
       if (!video) return;
       video.pause();
-      setPlaying(false);
+      setError(false);
+      setProgress(0);
+      video.load();
       if (video.readyState >= 1) seekToStart();
-    }, [range.start, range.end]);
+    }, [range.start, range.end, src]);
 
-    const togglePlayback = async () => {
-      const video = videoRef.current;
+    const enterFullscreen = async () => {
+      const video = videoRef.current as (HTMLVideoElement & {
+        webkitEnterFullscreen?: () => void;
+        webkitRequestFullscreen?: () => Promise<void> | void;
+      }) | null;
       if (!video) return;
-      if (!video.paused) {
-        video.pause();
-        setPlaying(false);
-        return;
-      }
-      if (video.currentTime < range.start || video.currentTime >= range.end - 0.1) {
-        video.currentTime = range.start;
-      }
       try {
-        await video.play();
-        setPlaying(true);
+        if (video.requestFullscreen) {
+          await video.requestFullscreen();
+        } else if (video.webkitEnterFullscreen) {
+          video.webkitEnterFullscreen();
+        } else if (video.webkitRequestFullscreen) {
+          await video.webkitRequestFullscreen();
+        }
       } catch {
-        setError(true);
-        setPlaying(false);
+        // Native controls still expose fullscreen where the browser supports it.
       }
     };
 
@@ -85,7 +83,6 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
       if (video.currentTime >= range.end) {
         video.pause();
         video.currentTime = range.end;
-        setPlaying(false);
       }
       const duration = Math.max(0.1, range.end - range.start);
       setProgress(Math.min(1, Math.max(0, (video.currentTime - range.start) / duration)));
@@ -99,21 +96,14 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
             src={src}
             preload="metadata"
             playsInline
-            className="block w-full h-auto"
+            controls
+            controlsList="nodownload"
+            className="block w-full h-full"
             onLoadedMetadata={seekToStart}
             onTimeUpdate={handleTimeUpdate}
-            onPause={() => setPlaying(false)}
-            onPlay={() => setPlaying(true)}
+            onCanPlay={() => setError(false)}
             onError={() => setError(true)}
           />
-          <button
-            type="button"
-            onClick={togglePlayback}
-            aria-label={playing ? '暂停视频' : '播放视频'}
-            className="absolute inset-0 m-auto w-14 h-14 rounded-full bg-white/95 text-primary shadow-xl flex items-center justify-center active:scale-95 transition-transform"
-          >
-            {playing ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
-          </button>
         </div>
 
         <div className="mt-3 flex items-center gap-3">
@@ -124,6 +114,15 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
             title="从片段开头重听"
           >
             <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={enterFullscreen}
+            className="w-9 h-9 flex-shrink-0 rounded-lg bg-white border border-gray-200 text-gray-600 flex items-center justify-center hover:text-primary"
+            title="全屏播放"
+            aria-label="全屏播放"
+          >
+            <Maximize2 className="w-4 h-4" />
           </button>
           <div className="flex-1 min-w-0">
             <div className="h-1.5 rounded-full bg-gray-200 overflow-hidden">
@@ -139,7 +138,7 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
         {error && (
           <p className="mt-3 flex items-center gap-2 text-sm text-red-600" role="alert">
             <AlertTriangle className="w-4 h-4" />
-            视频暂时无法播放，请检查网络后重试。
+            视频加载失败，请刷新页面后重试；若仍无法播放，请切换网络或浏览器。
           </p>
         )}
       </div>
