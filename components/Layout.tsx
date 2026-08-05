@@ -1,7 +1,7 @@
 
 import React, { Suspense, lazy, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Book, PenTool, GraduationCap, Languages, AlertCircle, LogIn, LogOut, User, Volume2 } from 'lucide-react';
+import { Search, Book, PenTool, GraduationCap, Languages, AlertCircle, Headphones, LogIn, LogOut, User, Volume2 } from 'lucide-react';
 import { useAppContext } from '../App';
 const VoiceCheckModal = lazy(() => import('./VoiceCheckModal'));
 
@@ -16,6 +16,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const navItems = [
     { path: '/', icon: Search, label: '智能查词', badge: 0 },
+    { path: '/listening/se-presenter', icon: Headphones, label: '听力实战', badge: 0 },
     { path: '/notebook', icon: Book, label: '生词本', badge: 0 },
     { path: '/conjugation', icon: Languages, label: '变位练习', badge: 0 },
     { path: '/practice', icon: PenTool, label: '创意听写', badge: 0 },
@@ -147,7 +148,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </main>
 
       {/* Mobile Bottom Navigation (Visible only on small screens) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pt-3 px-8 pb-3 mobile-nav-safe flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pt-3 px-3 pb-3 mobile-nav-safe flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
         {navItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (

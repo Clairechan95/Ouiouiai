@@ -614,7 +614,7 @@ const ListeningLessonView: React.FC = () => {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-bold text-primary">听力策略训练 · A1+</p>
+          <p className="text-xs font-bold text-primary">真实素材听力 · A1+</p>
           <h1 className="truncate text-lg sm:text-xl font-black text-gray-800">Se présenter en France</h1>
         </div>
         <span className="hidden sm:inline-flex px-3 py-1.5 rounded-full bg-indigo-50 text-primary text-xs font-bold">Interview · 约 12 分钟</span>
@@ -647,7 +647,7 @@ const ListeningLessonView: React.FC = () => {
       <div className="mt-5 grid lg:grid-cols-[0.88fr_1.12fr] gap-5 items-start">
         <section className="lg:sticky lg:top-5">
           <div className="flex items-center gap-2 text-xs font-bold text-primary">
-            <Headphones className="w-4 h-4" />真实采访 · 三位说话者 · 原速
+            <Headphones className="w-4 h-4" />原速真听力 · 分步策略训练
           </div>
           <p className="mt-2 mb-3 text-sm text-gray-500">外国学生分享他们在法国学习和生活的经历。</p>
           <SegmentVideoPlayer ref={playerRef} src={LISTENING_VIDEO} range={videoRange} />
