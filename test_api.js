@@ -18,6 +18,7 @@ async function testDeepSeekAPI() {
       },
       body: JSON.stringify({
         model: 'deepseek-v4-flash',
+        thinking: { type: 'disabled' },
         messages: [{
           role: 'user',
           content: '请简单介绍一下你自己'

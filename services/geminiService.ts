@@ -11,6 +11,7 @@ import { logWordLookup } from "./analyticsService";
 
 const API_BASE_URL = "/api/deepseek/v1";
 const DEEPSEEK_MODEL = "deepseek-v4-flash";
+const DEEPSEEK_THINKING = { type: "disabled" } as const;
 
 
 // --- AI 请求封装 ---
@@ -106,6 +107,7 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.7
@@ -202,6 +204,7 @@ export async function* lookupWordStreaming(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       stream: true,
@@ -299,6 +302,7 @@ export const lookupConjugations = async (
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3
     });
@@ -319,6 +323,7 @@ export const fetchExtendedConjugations = async (infinitive: string): Promise<Ver
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2
     });
@@ -344,6 +349,7 @@ export const fetchCollocations = async (word: string, pos?: string, chineseDef?:
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.5
@@ -361,6 +367,7 @@ export const chatWithWordContext = async (history: any[], message: string, word:
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [
         { role: 'system', content: `你是一个亲切的法语私教。当前学生在学习单词 "${word.text}"（释义: ${word.chineseDefinition}）。请用中文耐心地回答他的疑问。` },
         ...history,
@@ -411,6 +418,7 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
       },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [{ role: "user", content: prompt }],
         stream: true,
         temperature: 0.8
@@ -494,6 +502,7 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
       },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
+        thinking: DEEPSEEK_THINKING,
         messages: [{ role: "user", content: prompt }],
         stream: true,
         temperature: 0.8
@@ -575,6 +584,7 @@ ${errorList}
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       max_tokens: 200,
@@ -603,6 +613,7 @@ export const generateErrorHint = async (params: {
   try {
     const data = await fetchDeepSeek('/chat/completions', {
       model: DEEPSEEK_MODEL,
+      thinking: DEEPSEEK_THINKING,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 60,
       temperature: 0.2,
