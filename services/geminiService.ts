@@ -4,12 +4,13 @@ import { logWordLookup } from "./analyticsService";
 
 /**
  * OuiOui AI - 中国区优化方案
- * LLM: DeepSeek-V3 (低成本/高逻辑)
+ * LLM: DeepSeek-V4 Flash (低成本/低延迟)
  * TTS: Web Speech API (零成本本地合成)
  * Network: 通过 Cloudflare Pages Function 代理 DeepSeek，避免国内浏览器直连不稳定
  */
 
 const API_BASE_URL = "/api/deepseek/v1";
+const DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 
 // --- AI 请求封装 ---
@@ -104,7 +105,7 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
 
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.7
@@ -200,7 +201,7 @@ export async function* lookupWordStreaming(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       stream: true,
@@ -297,7 +298,7 @@ export const lookupConjugations = async (
   const prompt = `返回法语动词"${infinitive}"的变位表JSON数组，包含 Présent 直陈现在时 和 Passé composé 复合过去时。${extraTense}${reflexiveNote}每个时态含6个人称完整变位（含主语代词）。只返回JSON数组，格式：[{"tense":"Présent 直陈现在时","forms":["je xxx","tu xxx","il/elle xxx","nous xxx","vous xxx","ils/elles xxx"]},{"tense":"Passé composé 复合过去时","forms":["je me suis xxx","tu t'es xxx","il/elle s'est xxx","nous nous sommes xxx","vous vous êtes xxx","ils/elles se sont xxx"]}]`;
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3
     });
@@ -317,7 +318,7 @@ export const fetchExtendedConjugations = async (infinitive: string): Promise<Ver
   const prompt = `仅返回JSON数组，给出法语动词"${infinitive}"以下5个时态的变位，不含任何Markdown标记。${reflexiveNote}时态：Imparfait 直陈未完成过去时（6人称）、Futur simple 直陈简单将来时（6人称）、Conditionnel présent 条件式现在时（6人称）、Subjonctif présent 虚拟式现在时（6人称，含que）、Impératif présent 命令式（仅tu/nous/vous三行，无主语）。格式：[{"tense":"时态名","forms":["je/tu/il.../que je... xxx",...]}]`;
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2
     });
@@ -342,7 +343,7 @@ export const fetchCollocations = async (word: string, pos?: string, chineseDef?:
   const prompt = `你是法语词汇专家。列出法语单词"${word}"${ctx}的6-8个最常用固定搭配、惯用短语或常见表达。以JSON格式返回，不含任何Markdown标记：{"items":[{"phrase":"固定搭配或短语","chinese":"中文释义","example":"一个简短的法语例句","exampleChinese":"例句中文翻译"}]}`;
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.5
@@ -359,7 +360,7 @@ export const fetchCollocations = async (word: string, pos?: string, chineseDef?:
 export const chatWithWordContext = async (history: any[], message: string, word: WordEntry): Promise<string> => {
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: "deepseek-chat",
+      model: DEEPSEEK_MODEL,
       messages: [
         { role: 'system', content: `你是一个亲切的法语私教。当前学生在学习单词 "${word.text}"（释义: ${word.chineseDefinition}）。请用中文耐心地回答他的疑问。` },
         ...history,
@@ -409,7 +410,7 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: DEEPSEEK_MODEL,
         messages: [{ role: "user", content: prompt }],
         stream: true,
         temperature: 0.8
@@ -492,7 +493,7 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: DEEPSEEK_MODEL,
         messages: [{ role: "user", content: prompt }],
         stream: true,
         temperature: 0.8
@@ -573,7 +574,7 @@ ${errorList}
 
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: 'deepseek-chat',
+      model: DEEPSEEK_MODEL,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       max_tokens: 200,
@@ -601,7 +602,7 @@ export const generateErrorHint = async (params: {
     : `法语听写练习中，学生填"${userAnswer}"，正确是"${correctAnswer}"。句子：${context}。请用不超过18个中文字，一句话点出关键错误原因（如拼写规则、性数配合、词形混淆），只给提示，不复述答案。`;
   try {
     const data = await fetchDeepSeek('/chat/completions', {
-      model: 'deepseek-chat',
+      model: DEEPSEEK_MODEL,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 60,
       temperature: 0.2,

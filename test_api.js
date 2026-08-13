@@ -1,9 +1,13 @@
 // 测试 DeepSeek API 连接
-const API_KEY = 'sk-d7a2bcbcb8574e3ba735c0c010bc657b';
+const API_KEY = process.env.DEEPSEEK_API_KEY;
 const API_BASE_URL = 'https://api.deepseek.com/v1';
 
 async function testDeepSeekAPI() {
   console.log('正在测试 DeepSeek API 连接...');
+
+  if (!API_KEY) {
+    throw new Error('请先设置 DEEPSEEK_API_KEY 环境变量');
+  }
   
   try {
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
@@ -13,7 +17,7 @@ async function testDeepSeekAPI() {
         'Authorization': `Bearer ${API_KEY}`
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: 'deepseek-v4-flash',
         messages: [{
           role: 'user',
           content: '请简单介绍一下你自己'

@@ -1,9 +1,13 @@
 // 测试 Silicon Flow API 连接
-const SILICON_FLOW_API_KEY = 'sk-mtwbtmpradyvpbngtddqpapkcuyqproksepfbizwybeyqmpl';
+const SILICON_FLOW_API_KEY = process.env.SILICON_FLOW_API_KEY;
 const API_URL = 'https://api.siliconflow.cn/v1/images/generations';
 
 async function testSiliconFlowAPI() {
   console.log('正在测试 Silicon Flow API 连接...');
+
+  if (!SILICON_FLOW_API_KEY) {
+    throw new Error('请先设置 SILICON_FLOW_API_KEY 环境变量');
+  }
   
   try {
     const response = await fetch(API_URL, {

@@ -224,7 +224,7 @@ const SearchView: React.FC = () => {
         <div className="flex items-center justify-center md:justify-start gap-2 mb-4">
           <div className="px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1 border border-green-100">
             <Zap className="w-3 h-3 fill-current" />
-            <span>DeepSeek-V3 Engine Ready</span>
+            <span>DeepSeek-V4 Flash Ready</span>
           </div>
         </div>
         <h1 className="text-4xl md:text-6xl font-black text-gray-800 mb-4 font-sans tracking-tight">
