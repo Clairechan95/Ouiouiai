@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, ShieldAlert, Layers, ChevronDown, ChevronUp, Link2 } from 'lucide-react';
 import { useAppContext } from '../App';
-import { lookupWordStreaming, lookupConjugations, generateWordImages, chatWithWordContext, PartialWordData, fetchExtendedConjugations, fetchCollocations, Collocation } from '../services/geminiService';
+import { lookupWordStreaming, lookupConjugations, chatWithWordContext, PartialWordData, fetchExtendedConjugations, fetchCollocations, Collocation } from '../services/geminiService';
 import { storage } from '../services/storageService';
 import { WordEntry, ChatMessage } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
@@ -22,7 +22,7 @@ const FRENCH_TIPS = [
 const ResultView: React.FC = () => {
   const { query } = useParams<{ query: string }>();
   const navigate = useNavigate();
-  const { currentLevel, addToNotebook, updateNotebookImages, notebook, addRecentSearch } = useAppContext();
+  const { currentLevel, addToNotebook, notebook, addRecentSearch } = useAppContext();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,13 +109,6 @@ const ResultView: React.FC = () => {
             });
           }
 
-          generateWordImages(complete.text, complete.imageKeyword || '').then(urls => {
-            if (urls.length > 0) {
-              setImages(urls);
-              storage.saveWordToCache({ ...complete, imageUrls: urls });
-              updateNotebookImages(complete.id, urls);
-            }
-          });
         }
       }
     } catch (err: any) {
