@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:security": "node --test tests/apiSecurity.test.js"
+    "test:security": "node --test tests/*.test.js"
   },
   "dependencies": {
     "@google/genai": "latest",

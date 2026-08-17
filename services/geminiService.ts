@@ -2,6 +2,7 @@
 import { WordEntry, CEFRLevel, StorySegment, VerbConjugation } from "../types";
 import { logWordLookup } from "./analyticsService";
 import { paidApiHeaders } from "./apiSecurityClient";
+import { extractDeepSeekSseText, readDeepSeekStream } from "./deepseekStream";
 
 /**
  * OuiOui AI - 中国区优化方案
@@ -226,7 +227,8 @@ export async function* lookupWordStreaming(
     let wordEntry: WordEntry;
     try {
       const responseText = await response.text();
-      wordEntry = buildWordEntryFromResult(parseJsonObject(responseText), text);
+      const content = extractDeepSeekSseText(responseText) || responseText;
+      wordEntry = buildWordEntryFromResult(parseJsonObject(content), text);
     } catch (err) {
       console.warn('Non-streaming fallback parse failed, retrying lookup:', err);
       wordEntry = await lookupWord(text, userLevel);
@@ -235,35 +237,21 @@ export async function* lookupWordStreaming(
     return;
   }
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
   let buffer = '';
   let lastKey = '';
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') continue;
-        try { buffer += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch {}
-      }
-      const partial: PartialWordData = {
-        text: extractJsonField(buffer, 'correctText'),
-        chineseDefinition: extractJsonField(buffer, 'chineseDefinition'),
-        frenchDefinition: extractJsonField(buffer, 'frenchDefinition'),
-        pos: extractJsonField(buffer, 'pos'),
-        ipa: extractJsonField(buffer, 'ipa'),
-        funNote: extractJsonField(buffer, 'funNote'),
-      };
-      const key = Object.values(partial).join('|');
-      if (key !== lastKey) { lastKey = key; yield { partial, complete: null }; }
-    }
-  } finally {
-    reader.releaseLock();
+  for await (const content of readDeepSeekStream(response)) {
+    buffer += content;
+    const partial: PartialWordData = {
+      text: extractJsonField(buffer, 'correctText'),
+      chineseDefinition: extractJsonField(buffer, 'chineseDefinition'),
+      frenchDefinition: extractJsonField(buffer, 'frenchDefinition'),
+      pos: extractJsonField(buffer, 'pos'),
+      ipa: extractJsonField(buffer, 'ipa'),
+      funNote: extractJsonField(buffer, 'funNote'),
+    };
+    const key = Object.values(partial).join('|');
+    if (key !== lastKey) { lastKey = key; yield { partial, complete: null }; }
   }
 
   // Parse complete JSON from accumulated buffer
@@ -422,36 +410,16 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
       })
     });
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
     let buffer = '';
 
-    if (!reader) return;
+    for await (const content of readDeepSeekStream(response)) {
+      buffer += content;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-      
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6);
-          if (jsonStr === '[DONE]') break;
-          try {
-            const json = JSON.parse(jsonStr);
-            const content = json.choices[0].delta?.content || '';
-            buffer += content;
-            
-            if (buffer.includes('\n')) {
-              const parts = buffer.split('\n');
-              buffer = parts.pop() || '';
-              for (const p of parts) {
-                if (p.trim()) yield p.trim();
-              }
-            }
-          } catch (e) {}
+      if (buffer.includes('\n')) {
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          if (part.trim()) yield part.trim();
         }
       }
     }
@@ -504,36 +472,16 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
       })
     });
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
     let buffer = '';
 
-    if (!reader) return;
+    for await (const content of readDeepSeekStream(response)) {
+      buffer += content;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6);
-          if (jsonStr === '[DONE]') break;
-          try {
-            const json = JSON.parse(jsonStr);
-            const content = json.choices[0].delta?.content || '';
-            buffer += content;
-
-            if (buffer.includes('\n')) {
-              const parts = buffer.split('\n');
-              buffer = parts.pop() || '';
-              for (const p of parts) {
-                if (p.trim()) yield p.trim();
-              }
-            }
-          } catch (e) {}
+      if (buffer.includes('\n')) {
+        const parts = buffer.split('\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          if (part.trim()) yield part.trim();
         }
       }
     }
