@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ouiouiai",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-08-17",
+  "d1_databases": [
+    {
+      "binding": "AI_GATE_DB",
+      "database_name": "ouioui-ai-gateway",
+      "database_id": "747bf5a5-ee21-4757-89b7-6038e6ba0048"
+    }
+  ],
+  "vars": {
+    "DEEPSEEK_SESSION_LIMIT": "20",
+    "DEEPSEEK_IP_LIMIT": "90",
+    "DEEPSEEK_DAILY_LIMIT": "3000",
+    "TTS_SESSION_LIMIT": "20",
+    "TTS_IP_LIMIT": "100",
+    "TTS_DAILY_LIMIT": "10000",
+    "IMAGE_SESSION_LIMIT": "5",
+    "IMAGE_IP_LIMIT": "20",
+    "IMAGE_DAILY_LIMIT": "300"
+  }
+}

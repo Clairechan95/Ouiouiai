@@ -1,18 +1,11 @@
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
-
-const json = (body, status = 200) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...corsHeaders,
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    },
-  });
+import {
+  corsHeaders,
+  enforceRateLimit,
+  handleOptions,
+  jsonResponse,
+  readJsonBody,
+  validateSameOrigin,
+} from '../../server/apiSecurity.js';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -49,45 +42,28 @@ const buildMiniMaxUrl = (env) => {
 export async function onRequest(context) {
   const { request, env } = context;
 
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: corsHeaders });
-  }
+  if (request.method === 'OPTIONS') return handleOptions(request);
+
+  const source = validateSameOrigin(request);
+  if (!source.ok) return source.response;
 
   if (request.method !== 'POST') {
-    return json({ error: { message: 'Method not allowed' } }, 405);
+    return jsonResponse({ error: { message: 'Method not allowed' } }, 405, source.origin);
   }
 
-  const apiKey = env.MINIMAX_API_KEY;
-  if (!apiKey) {
-    return json({
-      error: {
-        message: 'MiniMax API Key 未配置，请在 Cloudflare Pages 环境变量中添加 MINIMAX_API_KEY。',
-      },
-    }, 500);
+  const parsed = await readJsonBody(request, 8192);
+  if (!parsed.ok) {
+    return jsonResponse({ error: { message: parsed.error } }, parsed.status, source.origin);
   }
-
-  if (!env.MINIMAX_GROUP_ID) {
-    return json({
-      error: {
-        message: 'MiniMax Group ID 未配置，请在 Cloudflare Pages 环境变量中添加 MINIMAX_GROUP_ID。',
-      },
-    }, 500);
-  }
-
-  let payload;
-  try {
-    payload = await request.json();
-  } catch {
-    return json({ error: { message: '请求格式错误。' } }, 400);
-  }
+  const payload = parsed.value;
 
   const text = String(payload.text || '').trim();
   if (!text) {
-    return json({ error: { message: '缺少要朗读的文本。' } }, 400);
+    return jsonResponse({ error: { message: '缺少要朗读的文本。' } }, 400, source.origin);
   }
 
   if (text.length > 3000) {
-    return json({ error: { message: '朗读文本过长，请拆分后重试。' } }, 400);
+    return jsonResponse({ error: { message: '朗读文本过长，请拆分后重试。' } }, 400, source.origin);
   }
 
   const voice = payload.voice === 'male' ? 'male' : 'female';
@@ -104,9 +80,38 @@ export async function onRequest(context) {
   const cached = await cache.match(cacheRequest);
   if (cached) {
     const headers = new Headers(cached.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
+    Object.entries(corsHeaders(source.origin)).forEach(([key, value]) => headers.set(key, value));
     headers.set('X-TTS-Cache', 'HIT');
     return new Response(cached.body, { status: 200, headers });
+  }
+
+  const apiKey = env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    return jsonResponse({
+      error: {
+        message: 'MiniMax API Key 未配置，请在 Cloudflare Pages 环境变量中添加 MINIMAX_API_KEY。',
+      },
+    }, 503, source.origin);
+  }
+
+  if (!env.MINIMAX_GROUP_ID) {
+    return jsonResponse({
+      error: {
+        message: 'MiniMax Group ID 未配置，请在 Cloudflare Pages 环境变量中添加 MINIMAX_GROUP_ID。',
+      },
+    }, 503, source.origin);
+  }
+
+  const gate = await enforceRateLimit({
+    env,
+    request,
+    category: 'tts',
+    perSession: Number(env.TTS_SESSION_LIMIT || 20),
+    perIp: Number(env.TTS_IP_LIMIT || 100),
+    perDay: Number(env.TTS_DAILY_LIMIT || 10000),
+  });
+  if (!gate.ok) {
+    return jsonResponse({ error: { message: gate.message } }, gate.status, source.origin);
   }
 
   let upstream;
@@ -139,29 +144,29 @@ export async function onRequest(context) {
       }),
     });
   } catch (error) {
-    return json({
+    return jsonResponse({
       error: {
         message: 'MiniMax 语音服务连接失败，请稍后重试。',
         detail: error instanceof Error ? error.message : String(error),
       },
-    }, 502);
+    }, 502, source.origin);
   }
 
   const result = await upstream.json().catch(() => null);
   if (!upstream.ok || !result || result.base_resp?.status_code !== 0 || !result.data?.audio) {
-    return json({
+    return jsonResponse({
       error: {
         message: result?.base_resp?.status_msg || `MiniMax 语音合成失败：${upstream.status}`,
         trace_id: result?.trace_id,
       },
-    }, upstream.ok ? 502 : upstream.status);
+    }, upstream.ok ? 502 : upstream.status, source.origin);
   }
 
   const audioBytes = hexToBytes(result.data.audio);
   const response = new Response(audioBytes, {
     status: 200,
     headers: {
-      ...corsHeaders,
+      ...corsHeaders(source.origin),
       'Content-Type': 'audio/mpeg',
       'Cache-Control': 'public, max-age=2592000',
       'X-TTS-Cache': 'MISS',

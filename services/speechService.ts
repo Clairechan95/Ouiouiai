@@ -1,3 +1,5 @@
+import { paidApiHeaders } from './apiSecurityClient';
+
 export const hasSpeechSynthesis = (): boolean =>
   typeof window !== 'undefined' &&
   'speechSynthesis' in window &&
@@ -165,7 +167,7 @@ const speakWithCloudVoice = async (
   if (!audioUrl) {
     const response = await fetch('/api/tts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: paidApiHeaders('tts'),
       body: JSON.stringify({ text: cleanText, rate, voice: cloudVoice }),
     });
 

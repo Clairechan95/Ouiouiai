@@ -1,6 +1,7 @@
 
 import { WordEntry, CEFRLevel, StorySegment, VerbConjugation } from "../types";
 import { logWordLookup } from "./analyticsService";
+import { paidApiHeaders } from "./apiSecurityClient";
 
 /**
  * OuiOui AI - 中国区优化方案
@@ -16,12 +17,10 @@ const DEEPSEEK_THINKING = { type: "disabled" } as const;
 
 // --- AI 请求封装 ---
 
-const fetchDeepSeek = async (path: string, body: any) => {
+const fetchDeepSeek = async (path: string, body: any, task: string) => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: paidApiHeaders(task),
     body: JSON.stringify(body)
   });
   
@@ -111,7 +110,7 @@ export const lookupWord = async (text: string, userLevel: CEFRLevel): Promise<Wo
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.7
-    });
+    }, 'lookup');
     
     const result = parseJsonObject(data.choices[0].message.content);
     const wordEntry: WordEntry = {
@@ -201,7 +200,7 @@ export async function* lookupWordStreaming(
 
   const response = await fetch(`${API_BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: paidApiHeaders('lookup'),
     body: JSON.stringify({
       model: DEEPSEEK_MODEL,
       thinking: DEEPSEEK_THINKING,
@@ -305,7 +304,7 @@ export const lookupConjugations = async (
       thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.3
-    });
+    }, 'conjugations');
     const content = data.choices[0].message.content;
     const match = content.match(/\[[\s\S]*\]/);
     return match ? JSON.parse(match[0]) : [];
@@ -326,7 +325,7 @@ export const fetchExtendedConjugations = async (infinitive: string): Promise<Ver
       thinking: DEEPSEEK_THINKING,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2
-    });
+    }, 'extended_conjugations');
     const match = data.choices[0].message.content.match(/\[[\s\S]*\]/);
     return match ? JSON.parse(match[0]) : [];
   } catch {
@@ -353,7 +352,7 @@ export const fetchCollocations = async (word: string, pos?: string, chineseDef?:
       messages: [{ role: "user", content: prompt }],
       response_format: { type: "json_object" },
       temperature: 0.5
-    });
+    }, 'collocations');
     const parsed = parseJsonObject(data.choices[0].message.content);
     return parsed.items || parsed.collocations || parsed.phrases || [];
   } catch {
@@ -373,7 +372,7 @@ export const chatWithWordContext = async (history: any[], message: string, word:
         ...history,
         { role: 'user', content: message }
       ]
-    });
+    }, 'chat');
     return data.choices[0].message.content;
   } catch (e) {
     console.error('AI 聊天错误:', e);
@@ -413,9 +412,7 @@ export async function* generateClozeStoryStream(words: string[], theme: string, 
   try {
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: paidApiHeaders('cloze_story'),
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         thinking: DEEPSEEK_THINKING,
@@ -497,9 +494,7 @@ Hier, nous {{avons mangé|manger|Passé composé}} ensemble. ||| 昨天我们一
   try {
     const response = await fetch(`${API_BASE_URL}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: paidApiHeaders('conjugation_story'),
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         thinking: DEEPSEEK_THINKING,
@@ -589,7 +584,7 @@ ${errorList}
       response_format: { type: 'json_object' },
       max_tokens: 200,
       temperature: 0.3,
-    });
+    }, 'practice_summary');
     return parseJsonObject(data.choices[0].message.content);
   } catch {
     return { errorTypes: [], suggestion: '' };
@@ -617,7 +612,7 @@ export const generateErrorHint = async (params: {
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 60,
       temperature: 0.2,
-    });
+    }, 'error_hint');
     return data.choices[0].message.content.trim();
   } catch {
     return '';
@@ -626,31 +621,11 @@ export const generateErrorHint = async (params: {
 
 // 图片生成逻辑使用 Silicon Flow API
 export const generateWordImages = async (word: string, imageKeyword: string): Promise<string[]> => {
-  const SILICON_FLOW_API_KEY = process.env.SILICON_FLOW_API_KEY;
-
-  if (!SILICON_FLOW_API_KEY) {
-    console.error("Silicon Flow API 密钥未配置");
-    return [];
-  }
-
-  const keyword = imageKeyword || word;
-
   try {
-    const prompt = `${keyword}, soft watercolor illustration, educational dictionary art, clean white background, vibrant colors, highly detailed, no text, no letters`;
-
-    const response = await fetch('https://api.siliconflow.cn/v1/images/generations', {
+    const response = await fetch('/api/images', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SILICON_FLOW_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'black-forest-labs/FLUX.1-dev',
-        prompt,
-        image_size: '1024x1024',
-        n: 2,
-        num_inference_steps: 25,
-      })
+      headers: paidApiHeaders('images'),
+      body: JSON.stringify({ word, imageKeyword }),
     });
 
     if (!response.ok) {
