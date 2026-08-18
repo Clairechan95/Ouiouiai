@@ -11,7 +11,7 @@ const lessons = [
     meta: '3位说话人 · 约30秒',
     description: '辨认姓名、国籍、城市和来法国的目的。',
     video: '/listening/se-presenter-full.mp4',
-    action: '继续学习',
+    action: '开始学习',
   },
   {
     path: '/listening/pourquoi-francais',
