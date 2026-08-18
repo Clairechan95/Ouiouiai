@@ -14,6 +14,7 @@ export interface SegmentVideoPlayerHandle {
 interface SegmentVideoPlayerProps {
   src: string;
   range: VideoRange;
+  maskSubtitles?: boolean;
 }
 
 const formatTime = (seconds: number) => {
@@ -22,7 +23,7 @@ const formatTime = (seconds: number) => {
 };
 
 const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlayerProps>(
-  ({ src, range }, ref) => {
+  ({ src, range, maskSubtitles = false }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState(false);
@@ -104,6 +105,11 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
             onCanPlay={() => setError(false)}
             onError={() => setError(true)}
           />
+          {maskSubtitles && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[27%] items-center justify-center bg-gray-950/95 px-4 text-center text-xs font-bold text-white/70">
+              字幕已隐藏
+            </div>
+          )}
         </div>
 
         <div className="mt-3 flex items-center gap-3">

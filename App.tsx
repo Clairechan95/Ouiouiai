@@ -16,6 +16,8 @@ import { supabase } from './services/supabaseClient';
 import * as cloud from './services/cloudStorageService';
 
 const ListeningLessonView = React.lazy(() => import('./views/ListeningLessonView'));
+const ListeningHomeView = React.lazy(() => import('./views/ListeningHomeView'));
+const ListeningReasonsView = React.lazy(() => import('./views/ListeningReasonsView'));
 
 interface AppState {
   user: User | null;
@@ -219,10 +221,26 @@ const App: React.FC = () => {
             <Route path="/wrong-answers" element={<WrongAnswerView />} />
             <Route path="/auth" element={<AuthView />} />
             <Route
+              path="/listening"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
+                  <ListeningHomeView />
+                </React.Suspense>
+              )}
+            />
+            <Route
               path="/listening/se-presenter"
               element={(
                 <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
                   <ListeningLessonView />
+                </React.Suspense>
+              )}
+            />
+            <Route
+              path="/listening/pourquoi-francais"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
+                  <ListeningReasonsView />
                 </React.Suspense>
               )}
             />

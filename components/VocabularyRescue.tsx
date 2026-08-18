@@ -2,26 +2,28 @@ import React, { useMemo, useState } from 'react';
 import { BookOpen, BookmarkPlus, Check, ExternalLink, LifeBuoy, Volume2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAppContext } from '../App';
-import { ListeningSpeaker, ListeningVocabulary } from '../data/listeningLesson';
+import { ListeningVocabulary } from '../data/listeningLesson';
 import { WordEntry } from '../types';
 
 interface VocabularyRescueProps {
-  speaker: ListeningSpeaker;
+  speaker: { name: string; vocabulary: ListeningVocabulary[] };
   onReplay: () => void;
   onOpen: (entry: ListeningVocabulary) => void;
+  courseName?: string;
+  themes?: string[];
 }
 
 const normalizeTerm = (value: string) => value.trim().toLocaleLowerCase('fr-FR');
 
-const toNotebookEntry = (entry: ListeningVocabulary): WordEntry => ({
+const toNotebookEntry = (entry: ListeningVocabulary, courseName: string, themes: string[]): WordEntry => ({
   id: entry.id,
   text: entry.lookupTerm,
   chineseDefinition: entry.chinese,
   frenchDefinition: entry.note,
   examples: [{ french: entry.sourceSentence, chinese: entry.sourceChinese, level: 'A1' }],
-  funNote: `来自听力课程 Se présenter：${entry.note}`,
+  funNote: `来自听力课程 ${courseName}：${entry.note}`,
   imageUrls: [],
-  themes: ['听力课', '自我介绍'],
+  themes,
   createdAt: Date.now(),
   pos: entry.pos,
   isVerb: entry.pos.startsWith('v.'),
@@ -30,7 +32,13 @@ const toNotebookEntry = (entry: ListeningVocabulary): WordEntry => ({
     : undefined,
 });
 
-const VocabularyRescue: React.FC<VocabularyRescueProps> = ({ speaker, onReplay, onOpen }) => {
+const VocabularyRescue: React.FC<VocabularyRescueProps> = ({
+  speaker,
+  onReplay,
+  onOpen,
+  courseName = 'Se présenter',
+  themes = ['听力课', '自我介绍'],
+}) => {
   const { addToNotebook, notebook } = useAppContext();
   const [selected, setSelected] = useState<ListeningVocabulary | null>(null);
 
@@ -125,7 +133,7 @@ const VocabularyRescue: React.FC<VocabularyRescueProps> = ({ speaker, onReplay, 
               <button
                 type="button"
                 disabled={isSaved}
-                onClick={() => addToNotebook(toNotebookEntry(selected))}
+                onClick={() => addToNotebook(toNotebookEntry(selected, courseName, themes))}
                 className="min-h-12 rounded-lg bg-primary px-3 text-sm font-black text-white disabled:bg-emerald-50 disabled:text-emerald-700"
               >
                 <span className="inline-flex items-center gap-2">
