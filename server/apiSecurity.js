@@ -1,4 +1,5 @@
 const SESSION_PATTERN = /^[a-zA-Z0-9_-]{12,96}$/;
+const IP_PATTERN = /^[0-9a-fA-F:.]{3,64}$/;
 
 const RATE_SQL = `
   INSERT INTO ai_rate_limits (scope, bucket, count, expires_at)
@@ -83,6 +84,18 @@ export const readJsonBody = async (request, maxBytes = 65536) => {
 
 const resultCount = (result) => Number(result?.results?.[0]?.count || 0);
 
+const requestIp = (env, request) => {
+  const proxyKey = request.headers.get('X-OuiOui-Proxy-Key') || '';
+  const proxyIp = request.headers.get('X-OuiOui-Client-IP') || '';
+  const trustedProxy = Boolean(env.DOMESTIC_PROXY_KEY)
+    && proxyKey === env.DOMESTIC_PROXY_KEY
+    && IP_PATTERN.test(proxyIp);
+
+  return trustedProxy
+    ? proxyIp
+    : (request.headers.get('CF-Connecting-IP') || 'unknown');
+};
+
 export const enforceRateLimit = async ({
   env,
   request,
@@ -112,7 +125,7 @@ export const enforceRateLimit = async ({
     return { ok: false, status: 400, message: '客户端会话无效，请刷新页面后重试。' };
   }
 
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const ip = requestIp(env, request);
   const ipHash = await sha256(`${env.AI_GATEWAY_SALT}:${ip}`);
   const now = Date.now();
   const minuteBucket = Math.floor(now / 60000);

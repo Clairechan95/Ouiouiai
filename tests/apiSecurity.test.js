@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { onRequest as deepseekHandler } from '../functions/api/deepseek/[[path]].js';
+import { enforceRateLimit } from '../server/apiSecurity.js';
 
 class FakeD1 {
   constructor() {
@@ -115,4 +116,72 @@ test('enforces session limits before calling the paid upstream', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+const rateRequest = ({ session, clientIp, proxyKey }) => new Request('https://ouiouiai.pages.dev/api/test', {
+  headers: {
+    'X-OuiOui-Session': session,
+    'CF-Connecting-IP': '1.14.247.62',
+    'X-OuiOui-Client-IP': clientIp,
+    'X-OuiOui-Proxy-Key': proxyKey,
+  },
+});
+
+test('uses client IP only when the domestic proxy key is valid', async () => {
+  const trustedDb = new FakeD1();
+  const trustedEnv = {
+    AI_GATE_DB: trustedDb,
+    AI_GATEWAY_SALT: 'unit-test-salt',
+    DOMESTIC_PROXY_KEY: 'trusted-proxy-key',
+  };
+  const limits = {
+    env: trustedEnv,
+    category: 'deepseek',
+    perSession: 5,
+    perIp: 1,
+    perDay: 10,
+  };
+
+  const firstTrusted = await enforceRateLimit({
+    ...limits,
+    request: rateRequest({
+      session: 'trusted-session-0001',
+      clientIp: '198.51.100.10',
+      proxyKey: 'trusted-proxy-key',
+    }),
+  });
+  const secondTrusted = await enforceRateLimit({
+    ...limits,
+    request: rateRequest({
+      session: 'trusted-session-0002',
+      clientIp: '198.51.100.11',
+      proxyKey: 'trusted-proxy-key',
+    }),
+  });
+  assert.equal(firstTrusted.ok, true);
+  assert.equal(secondTrusted.ok, true);
+
+  const untrustedDb = new FakeD1();
+  const untrustedEnv = { ...trustedEnv, AI_GATE_DB: untrustedDb };
+  const firstUntrusted = await enforceRateLimit({
+    ...limits,
+    env: untrustedEnv,
+    request: rateRequest({
+      session: 'spoofed-session-0001',
+      clientIp: '198.51.100.20',
+      proxyKey: 'wrong-key',
+    }),
+  });
+  const secondUntrusted = await enforceRateLimit({
+    ...limits,
+    env: untrustedEnv,
+    request: rateRequest({
+      session: 'spoofed-session-0002',
+      clientIp: '198.51.100.21',
+      proxyKey: 'wrong-key',
+    }),
+  });
+  assert.equal(firstUntrusted.ok, true);
+  assert.equal(secondUntrusted.ok, false);
+  assert.equal(secondUntrusted.status, 429);
 });
