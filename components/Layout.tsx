@@ -145,6 +145,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         <div className={`flex-1 w-full mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10 ${isListeningRoute ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {children}
+          <footer className="mt-10 border-t border-gray-100 py-5 text-center text-xs text-gray-400">
+            <a
+              href="https://beian.miit.gov.cn/"
+              target="_blank"
+              rel="noreferrer"
+              className="transition-colors hover:text-primary"
+            >
+              粤ICP备2026120677号
+            </a>
+          </footer>
         </div>
       </main>
 
