@@ -346,6 +346,12 @@
       font-size: 0.8rem; color: var(--text-muted);
     }
     footer a { color: var(--indigo); text-decoration: none; }
+    .filings {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+      gap: 0.5rem 1rem; margin-top: 0.75rem;
+    }
+    .police-filing { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .police-filing img { width: 16px; height: 16px; flex: none; }
 
     /* MOBILE */
     @media (max-width: 640px) {
@@ -593,6 +599,13 @@
 <footer>
   <p>© 2026 OuiOui AI &nbsp;·&nbsp; Fait avec ❤️ pour les apprenants de français &nbsp;·&nbsp;
   <a href="/">进入应用</a></p>
+  <div class="filings">
+    <a href="https://beian.miit.gov.cn/" rel="noreferrer" target="_blank">粤ICP备2026120677号</a>
+    <a class="police-filing" href="https://beian.mps.gov.cn/#/query/webSearch?code=44060602003557" rel="noreferrer" target="_blank">
+      <img src="/beian-icon.png" alt="公安备案图标">
+      <span>粤公网安备44060602003557号</span>
+    </a>
+  </div>
 </footer>
 
 </body>

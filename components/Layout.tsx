@@ -145,7 +145,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         <div className={`flex-1 w-full mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10 ${isListeningRoute ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {children}
-          <footer className="mt-10 border-t border-gray-100 py-5 text-center text-xs text-gray-400">
+          <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-gray-100 py-5 text-center text-xs text-gray-400">
             <a
               href="https://beian.miit.gov.cn/"
               target="_blank"
@@ -153,6 +153,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               className="transition-colors hover:text-primary"
             >
               粤ICP备2026120677号
+            </a>
+            <a
+              href="https://beian.mps.gov.cn/#/query/webSearch?code=44060602003557"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-primary"
+            >
+              <img src="/beian-icon.png" alt="公安备案图标" className="h-4 w-4 shrink-0" />
+              <span>粤公网安备44060602003557号</span>
             </a>
           </footer>
         </div>
