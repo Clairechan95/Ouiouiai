@@ -216,8 +216,8 @@ const SearchView: React.FC = () => {
   return (
     <div className="min-h-full flex flex-col p-6 md:p-12 pt-12 md:pt-24 relative overflow-hidden bg-background">
       {/* Decorative Elements */}
-      <div className="absolute top-[-50px] right-[-50px] w-64 h-64 bg-primary/5 rounded-full blur-3xl opacity-50" />
-      <div className="absolute bottom-[-100px] left-[-30px] w-80 h-80 bg-secondary/5 rounded-full blur-3xl opacity-50" />
+      <div aria-hidden="true" className="pointer-events-none absolute top-[-50px] right-[-50px] w-64 h-64 bg-primary/5 rounded-full blur-3xl opacity-50" />
+      <div aria-hidden="true" className="pointer-events-none absolute bottom-[-100px] left-[-30px] w-80 h-80 bg-secondary/5 rounded-full blur-3xl opacity-50" />
 
       {/* Header Section */}
       <div className="relative z-10 mb-10 text-center md:text-left">
@@ -276,6 +276,8 @@ const SearchView: React.FC = () => {
             {Object.values(CEFRLevel).map((lvl) => (
               <button
                 key={lvl}
+                type="button"
+                aria-pressed={currentLevel === lvl}
                 onClick={() => setLevel(lvl)}
                 className={`py-4 px-2 rounded-2xl border-2 font-bold transition-all text-sm md:text-base ${
                   currentLevel === lvl 
