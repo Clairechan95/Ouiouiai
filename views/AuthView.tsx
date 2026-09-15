@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle } from 'lucide-react';
+import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle, UserRound, UsersRound, Hash } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
 const AuthView: React.FC = () => {
@@ -9,6 +9,9 @@ const AuthView: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [studentNumber, setStudentNumber] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -30,7 +33,17 @@ const AuthView: React.FC = () => {
 
     try {
       if (mode === 'register') {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              display_name: displayName.trim(),
+              pending_student_number: studentNumber.trim() || null,
+              pending_invite_code: inviteCode.trim().toUpperCase() || null,
+            },
+          },
+        });
         if (error) throw error;
         setSuccessMsg('注册成功！请查收验证邮件，点击链接后即可登录。');
       } else {
@@ -93,6 +106,45 @@ const AuthView: React.FC = () => {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'register' && (
+            <>
+              <div className="relative">
+                <UserRound className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-300" />
+                <input
+                  type="text"
+                  placeholder="姓名或常用称呼"
+                  value={displayName}
+                  onChange={e => setDisplayName(e.target.value)}
+                  required
+                  maxLength={60}
+                  className="w-full rounded-2xl border border-gray-100 bg-white py-4 pl-12 pr-4 font-medium text-gray-800 outline-none transition-all placeholder:text-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                />
+              </div>
+              <div className="relative">
+                <Hash className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-300" />
+                <input
+                  type="text"
+                  placeholder="学号（选填）"
+                  value={studentNumber}
+                  onChange={e => setStudentNumber(e.target.value)}
+                  maxLength={40}
+                  className="w-full rounded-2xl border border-gray-100 bg-white py-4 pl-12 pr-4 font-medium text-gray-800 outline-none transition-all placeholder:text-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                />
+              </div>
+              <div className="relative">
+                <UsersRound className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-300" />
+                <input
+                  type="text"
+                  placeholder="班级邀请码（选填）"
+                  value={inviteCode}
+                  onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                  maxLength={20}
+                  autoCapitalize="characters"
+                  className="w-full rounded-2xl border border-gray-100 bg-white py-4 pl-12 pr-4 font-medium uppercase text-gray-800 outline-none transition-all placeholder:normal-case placeholder:text-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/10"
+                />
+              </div>
+            </>
+          )}
           {/* Email */}
           <div className="relative">
             <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-300" />
@@ -140,6 +192,7 @@ const AuthView: React.FC = () => {
             </div>
           )}
 
+          {mode === 'register' && inviteCode.trim() && <p className="text-xs leading-5 text-gray-500">加入班级后，任课教师可查看你的查词、练习及听力学习记录。</p>}
           {/* Submit */}
           <button
             type="submit"

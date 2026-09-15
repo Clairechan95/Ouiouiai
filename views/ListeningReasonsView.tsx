@@ -1,8 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Check, Headphones, Lightbulb, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import SegmentVideoPlayer, { SegmentVideoPlayerHandle } from '../components/SegmentVideoPlayer';
 import VocabularyRescue from '../components/VocabularyRescue';
+import { useAppContext } from '../App';
+import { trackLearningEvent } from '../services/learningAnalyticsService';
 import {
   REASON_SECTIONS,
   REASONS_COMPREHENSION_QUESTIONS,
@@ -31,7 +33,10 @@ const fieldsFor = (sectionId: ReasonSectionId) => {
 };
 
 const ListeningReasonsView: React.FC = () => {
+  const { user } = useAppContext();
   const playerRef = useRef<SegmentVideoPlayerHandle>(null);
+  const analyticsStartedRef = useRef(false);
+  const analyticsCompletedRef = useRef(false);
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
   const [predictions, setPredictions] = useState<Set<string>>(new Set());
@@ -48,6 +53,34 @@ const ListeningReasonsView: React.FC = () => {
   const [shownDictationTranslations, setShownDictationTranslations] = useState<Set<ReasonSectionId>>(new Set());
   const [reflection, setReflection] = useState<Set<string>>(new Set());
   const [personalExpression, setPersonalExpression] = useState(PERSONAL_EXPRESSION_MODELS[0].text);
+
+  useEffect(() => {
+    if (!user?.id || analyticsStartedRef.current) return;
+    analyticsStartedRef.current = true;
+    trackLearningEvent('lesson_started', 'listening', {
+      ownerUserId: user.id,
+      targetId: 'pourquoi-francais',
+      properties: { content_version: 1 },
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (step !== 5 || !user?.id || analyticsCompletedRef.current) return;
+    analyticsCompletedRef.current = true;
+    trackLearningEvent('lesson_completed', 'listening', {
+      ownerUserId: user.id,
+      targetId: 'pourquoi-francais',
+      properties: { content_version: 1 },
+    });
+  }, [step, user?.id]);
+
+  const trackVideoError = (reason: 'load' | 'play') => {
+    trackLearningEvent('media_error', 'listening', {
+      ownerUserId: user?.id,
+      targetId: 'pourquoi-francais',
+      properties: { media: 'video', reason, step },
+    });
+  };
 
   const target = REASON_SECTIONS.find((item) => item.id === targetId)!;
   const dictation = REASON_SECTIONS.find((item) => item.id === dictationId)!;
@@ -128,7 +161,7 @@ const ListeningReasonsView: React.FC = () => {
       <section>
         <p className="text-sm font-bold text-primary">整体初听 · Écoute globale</p>
         <h2 className="mt-2 text-2xl font-black text-gray-800">先抓住大家在谈什么</h2>
-        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={REASONS_FULL_RANGE} maskSubtitles /></div>
+        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={REASONS_FULL_RANGE} maskSubtitles onPlaybackError={trackVideoError} /></div>
         <div className="mt-6 space-y-2">{REASONS_GIST_OPTIONS.map((option, index) => <button key={option} type="button" onClick={() => setGist(index)} className={`min-h-12 w-full rounded-lg border px-4 text-left text-sm font-bold ${gist === index ? 'border-primary bg-indigo-50 text-primary' : 'border-gray-200 bg-white text-gray-600'}`}>{option}</button>)}</div>
         <button type="button" disabled={gist === null} onClick={() => go(2)} className="mt-6 min-h-12 w-full rounded-lg bg-primary font-black text-white disabled:bg-gray-200">提交并核验</button>
       </section>
@@ -140,7 +173,7 @@ const ListeningReasonsView: React.FC = () => {
         <h2 className="mt-2 text-2xl font-black text-gray-800">再次听，抓住关键词与核心内容</h2>
         <p className="mt-2 text-sm text-gray-500">根据听到的法语选择答案，重点辨认关键词并理解主要内容。</p>
         <p className={`mt-4 rounded-lg p-3 text-sm font-bold ${gist === 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{gist === 0 ? '主旨判断正确。' : '参考答案：受访者谈法语给人的感受，以及它带来的文化和交流机会。'}</p>
-        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={REASONS_FULL_RANGE} maskSubtitles /></div>
+        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={REASONS_FULL_RANGE} maskSubtitles onPlaybackError={trackVideoError} /></div>
         <div className="mt-6 space-y-5">{REASONS_COMPREHENSION_QUESTIONS.map((question, questionIndex) => {
           const selected = comprehensionAnswers[question.id];
           return <section key={question.id} className="border-b border-gray-100 pb-5 last:border-0 last:pb-0">
@@ -170,7 +203,7 @@ const ListeningReasonsView: React.FC = () => {
         <h2 className="mt-2 text-2xl font-black text-gray-800">{target.name}</h2>
         <p className="mt-2 text-sm text-gray-500">{target.prompt}</p>
         <div className="mt-5">{sectionTabs(targetId, setTargetId)}</div>
-        <div className="mt-5"><SegmentVideoPlayer ref={playerRef} src={REASONS_VIDEO} range={{ start: target.start, end: target.end, label: target.name }} maskSubtitles={supportLevel < 4} /></div>
+        <div className="mt-5"><SegmentVideoPlayer ref={playerRef} src={REASONS_VIDEO} range={{ start: target.start, end: target.end, label: target.name }} maskSubtitles={supportLevel < 4} onPlaybackError={trackVideoError} /></div>
         <div className="mt-5 grid gap-2 sm:grid-cols-5">{[
           ['1', '原速再听'], ['2', '显示关键词'], ['3', '缺词字幕'], ['4', '完整字幕'], ['5', '中文翻译'],
         ].map(([level, label]) => <button key={level} type="button" onClick={() => { const value = Number(level); if (value === 1) playerRef.current?.replay(); else setSupportLevels((current) => ({ ...current, [targetId]: Math.max(current[targetId] ?? 0, value) })); }} className={`min-h-11 rounded-lg border px-2 text-xs font-black ${supportLevel >= Number(level) && Number(level) > 1 ? 'border-primary bg-indigo-50 text-primary' : 'border-gray-200 bg-white text-gray-600'}`}>{level}. {label}</button>)}</div>
@@ -187,7 +220,7 @@ const ListeningReasonsView: React.FC = () => {
         <h2 className="mt-2 text-2xl font-black text-gray-800">听写“{dictation.name}”中的关键词</h2>
         <p className="mt-2 text-sm text-gray-500">完整法语语境已经保留，只填写空缺的关键词；中文翻译默认隐藏。</p>
         <div className="mt-5">{sectionTabs(dictationId, setDictationId)}</div>
-        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={{ start: dictation.start, end: dictation.end, label: `${dictation.name} · 关键词听写` }} maskSubtitles /></div>
+        <div className="mt-5"><SegmentVideoPlayer src={REASONS_VIDEO} range={{ start: dictation.start, end: dictation.end, label: `${dictation.name} · 关键词听写` }} maskSubtitles onPlaybackError={trackVideoError} /></div>
         <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 text-base leading-[3.2] text-gray-700">{dictation.dictationTemplate.map((part, index) => {
           if (typeof part === 'string') return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
           const blankNumber = dictation.dictationTemplate.slice(0, index).filter((item) => typeof item !== 'string').length + 1;

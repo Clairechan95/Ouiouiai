@@ -8,7 +8,9 @@ const VoiceCheckModal = lazy(() => import('./VoiceCheckModal'));
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const isListeningRoute = location.pathname.startsWith('/listening');
-  const { notebook, wrongAnswers, user, signOut } = useAppContext();
+  const isTeacherRoute = location.pathname.startsWith('/teacher');
+  const isAuthRoute = location.pathname === '/auth';
+  const { notebook, wrongAnswers, user, signOut, accountContext } = useAppContext();
   const unmasteredCount = wrongAnswers.filter(w => !w.mastered).length;
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
@@ -23,11 +25,14 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { path: '/practice', icon: PenTool, label: '创意听写', badge: 0 },
     { path: '/wrong-answers', icon: AlertCircle, label: '错题本', badge: unmasteredCount },
   ];
+  const desktopNavItems = accountContext?.profile?.role === 'teacher'
+    ? [...navItems, { path: '/teacher', icon: GraduationCap, label: '教师端', badge: 0 }]
+    : navItems;
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
       {/* Desktop Sidebar (Visible on md and up) */}
-      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-gray-100 sticky top-0 h-screen z-50">
+      <aside className="hidden md:flex flex-col w-64 bg-white border-r border-gray-100 sticky top-0 h-screen overflow-y-auto z-50">
         <div className="p-8 flex items-center gap-3">
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-primary/20">
             <GraduationCap className="text-white w-6 h-6" />
@@ -35,8 +40,8 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           <span className="font-bold text-xl tracking-tight text-gray-800">OuiOui AI</span>
         </div>
         
-        <nav className="flex-1 px-4 space-y-2 mt-4">
-          {navItems.map((item) => {
+        <nav className="flex-1 shrink-0 px-4 space-y-2 mt-4">
+          {desktopNavItems.map((item) => {
             const isActive = item.path === '/listening' ? location.pathname.startsWith('/listening') : location.pathname === item.path;
             return (
               <Link
@@ -80,10 +85,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         <div className="px-4 pb-6 border-t border-gray-100 pt-4">
           {user ? (
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
-                <User className="w-4 h-4 text-primary" />
-              </div>
-              <span className="text-xs text-gray-500 flex-1 truncate">{user.email}</span>
+              <Link to="/account" className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-1 hover:bg-gray-50">
+                <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 text-primary" />
+                </div>
+                <span className="text-xs text-gray-500 flex-1 truncate">{user.email}</span>
+              </Link>
               <button
                 onClick={signOut}
                 title="退出登录"
@@ -107,7 +114,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       {/* Main Content Area */}
       <main className="flex-1 min-w-0 flex flex-col relative overflow-x-hidden">
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between px-4 pt-4 pb-2">
+        {!isAuthRoute && <div className="md:hidden flex items-center justify-between px-4 pt-4 pb-2">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center shadow-md shadow-primary/20">
               <GraduationCap className="text-white w-5 h-5" />
@@ -123,14 +130,15 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <Volume2 className="w-4 h-4" />
             </button>
             {user ? (
-              <button
-                onClick={signOut}
-                className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 hover:bg-red-50 hover:text-red-500 px-3 py-1.5 rounded-full transition-colors"
-              >
-                <User className="w-3 h-3" />
-                <span className="max-w-[80px] truncate">{user.email?.split('@')[0]}</span>
-                <LogOut className="w-3 h-3" />
-              </button>
+              <div className="flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1">
+                <Link to="/account" className="flex min-w-0 items-center gap-1 text-xs text-gray-500">
+                  <User className="h-3 w-3 shrink-0" />
+                  <span className="max-w-[72px] truncate">{user.email?.split('@')[0]}</span>
+                </Link>
+                <button onClick={signOut} title="退出登录" className="rounded-full p-1 text-gray-400 hover:bg-red-50 hover:text-red-500">
+                  <LogOut className="h-3 w-3" />
+                </button>
+              </div>
             ) : (
               <Link
                 to="/auth"
@@ -141,9 +149,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </Link>
             )}
           </div>
-        </div>
+        </div>}
 
-        <div className={`flex-1 w-full mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10 ${isListeningRoute ? 'max-w-7xl' : 'max-w-4xl'}`}>
+        <div className={`flex-1 w-full mx-auto px-4 sm:px-6 md:px-8 pb-20 sm:pb-24 md:pb-10 ${isListeningRoute || isTeacherRoute ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {children}
           <footer className="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t border-gray-100 py-5 text-center text-xs text-gray-400">
             <a
@@ -168,7 +176,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       </main>
 
       {/* Mobile Bottom Navigation (Visible only on small screens) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pt-3 px-3 pb-3 mobile-nav-safe flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
+      {!isAuthRoute && <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pt-3 px-3 pb-3 mobile-nav-safe flex justify-between items-center z-50 rounded-t-3xl shadow-[0_-8px_30px_rgb(0,0,0,0.04)]" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))' }}>
         {navItems.map((item) => {
           const isActive = item.path === '/listening' ? location.pathname.startsWith('/listening') : location.pathname === item.path;
           return (
@@ -191,7 +199,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </Link>
           );
         })}
-      </nav>
+      </nav>}
 
       {voiceModalOpen && (
         <Suspense fallback={null}>

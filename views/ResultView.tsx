@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Bookmark, Check, Send, Sparkles, MessageCircle, BookOpen, ShieldAlert, Layers, ChevronDown, ChevronUp, Link2 } from 'lucide-react';
 import { useAppContext } from '../App';
@@ -7,6 +7,7 @@ import { lookupWordStreaming, lookupConjugations, chatWithWordContext, PartialWo
 import { storage } from '../services/storageService';
 import { WordEntry, ChatMessage } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
+import { captureLearningIdentity, trackLearningEvent } from '../services/learningAnalyticsService';
 
 const FRENCH_TIPS = [
   { quote: "Petit à petit, l'oiseau fait son nid.", author: "Proverbe français", chinese: "一步一步，小鸟也能筑好巢。" },
@@ -46,6 +47,7 @@ const ResultView: React.FC = () => {
   const [collocOpen, setCollocOpen] = useState(false);
   const [collocLoading, setCollocLoading] = useState(false);
   const [collocs, setCollocs] = useState<Collocation[] | null>(null);
+  const trackedQueryRef = useRef('');
 
   const decodedQuery = query ? decodeURIComponent(query) : '';
 
@@ -63,14 +65,33 @@ const ResultView: React.FC = () => {
 
   useEffect(() => {
     if (query) {
+      if (trackedQueryRef.current === query) return;
+      trackedQueryRef.current = query;
+      const requestId = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const startedAt = performance.now();
+      const targetId = decodedQuery.trim().toLocaleLowerCase('fr-FR').slice(0, 160);
+      trackLearningEvent('lookup_requested', 'search', {
+        targetId,
+        properties: { request_id: requestId },
+      });
       addRecentSearch(decodedQuery);
       const cached = storage.getCachedWord(decodedQuery);
       if (cached) {
         setData(cached);
         setImages(cached.imageUrls || []);
         setLoading(false);
+        trackLearningEvent('lookup_succeeded', 'search', {
+          targetId: cached.text.trim().toLocaleLowerCase('fr-FR').slice(0, 160),
+          properties: {
+            request_id: requestId,
+            cache_hit: true,
+            duration_ms: Math.round(performance.now() - startedAt),
+          },
+        });
       } else {
-        loadData(decodedQuery);
+        loadData(decodedQuery, requestId, startedAt);
       }
     }
   }, [query]);
@@ -86,7 +107,17 @@ const ResultView: React.FC = () => {
     ))));
   }, [data, notebook]);
 
-  const loadData = async (text: string) => {
+  const loadData = async (text: string, requestId?: string, startedAt = performance.now()) => {
+    const ownerUserId = captureLearningIdentity();
+    const effectiveRequestId = requestId || (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    if (!requestId) {
+      trackLearningEvent('lookup_requested', 'search', {
+        targetId: text.trim().toLocaleLowerCase('fr-FR').slice(0, 160),
+        properties: { request_id: effectiveRequestId, retry: true },
+      });
+    }
     setLoading(true);
     setPartialData(null);
     setLoadingStep(0);
@@ -99,6 +130,15 @@ const ResultView: React.FC = () => {
           setData(complete);
           setPartialData(null);
           storage.saveWordToCache(complete);
+          trackLearningEvent('lookup_succeeded', 'search', {
+            ownerUserId,
+            targetId: complete.text.trim().toLocaleLowerCase('fr-FR').slice(0, 160),
+            properties: {
+              request_id: effectiveRequestId,
+              cache_hit: false,
+              duration_ms: Math.round(performance.now() - startedAt),
+            },
+          });
 
           if (complete.isVerb || (complete.pos && complete.pos.startsWith('v'))) {
             setConjLoading(true);
@@ -113,6 +153,15 @@ const ResultView: React.FC = () => {
       }
     } catch (err: any) {
       setError(err.message || "请求 AI 时出错，请检查网络环境。");
+      trackLearningEvent('lookup_failed', 'search', {
+        ownerUserId,
+        targetId: text.trim().toLocaleLowerCase('fr-FR').slice(0, 160),
+        properties: {
+          request_id: effectiveRequestId,
+          duration_ms: Math.round(performance.now() - startedAt),
+          error_category: 'lookup_request_failed',
+        },
+      });
     } finally {
       setLoading(false);
     }

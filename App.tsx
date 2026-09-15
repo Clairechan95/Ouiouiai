@@ -14,14 +14,27 @@ import { WordEntry, NotebookItem, CEFRLevel, SavedStory, WrongAnswer } from './t
 import { storage } from './services/storageService';
 import { supabase } from './services/supabaseClient';
 import * as cloud from './services/cloudStorageService';
+import { AccountContext, completePendingEnrollment, fetchAccountContext } from './services/classService';
+import {
+  endLearningSession,
+  resetLearningAnalytics,
+  startLearningAnalytics,
+  trackLearningEvent,
+} from './services/learningAnalyticsService';
 
 const ListeningLessonView = React.lazy(() => import('./views/ListeningLessonView'));
 const ListeningHomeView = React.lazy(() => import('./views/ListeningHomeView'));
 const ListeningReasonsView = React.lazy(() => import('./views/ListeningReasonsView'));
+const AccountView = React.lazy(() => import('./views/AccountView'));
+const TeacherDashboardView = React.lazy(() => import('./views/TeacherDashboardView'));
 
 interface AppState {
   user: User | null;
   authLoading: boolean;
+  accountContext: AccountContext | null;
+  accountLoading: boolean;
+  accountError: string;
+  refreshAccountContext: () => Promise<void>;
   notebook: NotebookItem[];
   addToNotebook: (word: WordEntry) => void;
   removeFromNotebook: (id: string) => void;
@@ -51,12 +64,58 @@ export const useAppContext = () => {
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [accountContext, setAccountContext] = useState<AccountContext | null>(null);
+  const [accountLoading, setAccountLoading] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const accountUserRef = React.useRef<string | null>(null);
+  accountUserRef.current = user?.id ?? null;
   const cloudDataLoadedRef = React.useRef(false);
   const [notebook, setNotebook] = useState<NotebookItem[]>(storage.getNotebook());
   const [savedStories, setSavedStories] = useState<SavedStory[]>(storage.getStories());
   const [currentLevel, setLevel] = useState<CEFRLevel>(CEFRLevel.BEGINNER);
   const [recentSearches, setRecentSearches] = useState<string[]>(storage.getRecent());
   const [wrongAnswers, setWrongAnswers] = useState<WrongAnswer[]>(storage.getWrongAnswers());
+
+  const refreshAccountContext = async () => {
+    if (!user) {
+      setAccountContext(null);
+      return;
+    }
+    setAccountLoading(true);
+    setAccountError('');
+    try {
+      const context = await fetchAccountContext(user.id);
+      if (accountUserRef.current === user.id) setAccountContext(context);
+    } catch (error) {
+      if (accountUserRef.current === user.id) setAccountError('账号信息暂时无法读取，请重试');
+    } finally {
+      if (accountUserRef.current === user.id) setAccountLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setAccountContext(null);
+    setAccountError('');
+    if (!user) {
+      resetLearningAnalytics();
+      setAccountLoading(false);
+      return;
+    }
+    const signedInUser = user;
+    setAccountLoading(true);
+    startLearningAnalytics(signedInUser.id);
+    // Supabase calls run outside the auth callback's lock.
+    void (async () => {
+      await completePendingEnrollment(signedInUser);
+      if (cancelled) return;
+      const context = await fetchAccountContext(signedInUser.id);
+      if (!cancelled) setAccountContext(context);
+    })().catch(() => {
+      if (!cancelled) setAccountError('账号信息暂时无法读取，请重试');
+    }).finally(() => { if (!cancelled) setAccountLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // 本地持久化
   useEffect(() => storage.saveNotebook(notebook), [notebook]);
@@ -113,16 +172,28 @@ const App: React.FC = () => {
   // 监听 Supabase 登录状态
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
+      const signedInUser = data.session?.user ?? null;
+      if (signedInUser) startLearningAnalytics(signedInUser.id);
+      setUser(signedInUser);
       setAuthLoading(false);
-      if (data.session?.user) loadCloudData();
-    });
+      if (signedInUser) {
+        window.setTimeout(() => { void loadCloudData(); }, 0);
+      }
+    }).catch(() => { setAuthLoading(false); });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       const newUser = session?.user ?? null;
+      if (newUser) startLearningAnalytics(newUser.id);
       setUser(newUser);
-      if (_event === 'SIGNED_IN') loadCloudData();
-      if (_event === 'SIGNED_OUT') cloudDataLoadedRef.current = false;
+      if (_event === 'INITIAL_SESSION') setAuthLoading(false);
+      if (_event === 'SIGNED_IN' && newUser) {
+        window.setTimeout(() => { if (accountUserRef.current === newUser.id) void loadCloudData(); }, 0);
+      }
+      if (_event === 'SIGNED_OUT') {
+        cloudDataLoadedRef.current = false;
+        setAccountContext(null);
+        resetLearningAnalytics();
+      }
     });
 
     return () => listener.subscription.unsubscribe();
@@ -136,11 +207,19 @@ const App: React.FC = () => {
     const item: NotebookItem = { ...word, masteryLevel: 0 };
     setNotebook(prev => [...prev, item]);
     if (user) cloud.upsertNotebookItem(item);
+    trackLearningEvent('word_saved', 'notebook', {
+      targetId: normalizedText,
+      properties: { source: 'word_result' },
+    });
   };
 
   const removeFromNotebook = (id: string) => {
+    const removed = notebook.find(item => item.id === id);
     setNotebook(prev => prev.filter(item => item.id !== id));
     if (user) cloud.deleteNotebookItem(id);
+    trackLearningEvent('word_removed', 'notebook', {
+      targetId: removed?.text.trim().toLocaleLowerCase('fr-FR') || id,
+    });
   };
 
   const updateNotebookImages = (id: string, imageUrls: string[]) => {
@@ -196,13 +275,14 @@ const App: React.FC = () => {
   };
 
   const signOut = async () => {
+    endLearningSession('logout');
     await supabase.auth.signOut();
     setUser(null);
   };
 
   return (
     <AppContext.Provider value={{
-      user, authLoading,
+      user, authLoading, accountContext, accountLoading, accountError, refreshAccountContext,
       notebook, addToNotebook, removeFromNotebook, updateNotebookImages,
       savedStories, saveStory, deleteStory,
       currentLevel, setLevel,
@@ -220,6 +300,22 @@ const App: React.FC = () => {
             <Route path="/conjugation" element={<ConjugationView />} />
             <Route path="/wrong-answers" element={<WrongAnswerView />} />
             <Route path="/auth" element={<AuthView />} />
+            <Route
+              path="/account"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在加载账号...</div>}>
+                  <AccountView />
+                </React.Suspense>
+              )}
+            />
+            <Route
+              path="/teacher"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在加载教师端...</div>}>
+                  <TeacherDashboardView />
+                </React.Suspense>
+              )}
+            />
             <Route
               path="/listening"
               element={(

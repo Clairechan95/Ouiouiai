@@ -7,6 +7,7 @@ import { useAppContext } from '../App';
 import { ClozeStory, SavedStory, StorySegment, WrongAnswer } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
 import { cancelSpeech, speakFrench } from '../services/speechService';
+import { createLearningAttemptId, trackLearningEvent, LearningModule } from '../services/learningAnalyticsService';
 
 // 生成离线 HTML 朗读播放器
 const buildHTMLPlayer = (title: string, subtitle: string, items: { id: number; fr: string; cn: string }[]) => `<!DOCTYPE html>
@@ -162,7 +163,8 @@ interface SentResult {
 // ── 组件 ──────────────────────────────────────────────────────────────────────
 
 const PracticeView: React.FC = () => {
-  const { notebook, currentLevel, savedStories, saveStory, deleteStory, addWrongAnswers } = useAppContext();
+  const { user, notebook, currentLevel, savedStories, saveStory, deleteStory, addWrongAnswers } = useAppContext();
+  const attemptIdRef = useRef<string | null>(null);
   const [activeTab, setActiveTab] = useState<'create' | 'saved'>('create');
 
   // 两步选择状态
@@ -476,6 +478,18 @@ const PracticeView: React.FC = () => {
         });
       }
     });
+    trackLearningEvent('practice_submitted', 'dictation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: selectedTheme || 'creative-dictation',
+      properties: { mode: 'paragraph', total: clozeData.segments.length, incorrect: wrongs.length },
+    });
+    trackLearningEvent('practice_completed', 'dictation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: selectedTheme || 'creative-dictation',
+      properties: { mode: 'paragraph', total: clozeData.segments.length, incorrect: wrongs.length },
+    });
 
     if (wrongs.length > 0) {
       addWrongAnswers(wrongs);
@@ -494,6 +508,12 @@ const PracticeView: React.FC = () => {
     const answer = cleanFr(seg.french);
     const diffs = diffWords(sentInput, answer);
     const allCorrect = diffs.every(d => d.ok);
+    trackLearningEvent('practice_submitted', 'dictation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: selectedTheme || 'creative-dictation',
+      properties: { mode: 'sentence', question_index: sentIdx + 1, correct: allCorrect },
+    });
 
     if (!allCorrect) {
       addWrongAnswers([{
@@ -517,6 +537,16 @@ const PracticeView: React.FC = () => {
     if (!clozeData) return;
     const nextIdx = sentIdx + 1;
     if (nextIdx >= clozeData.segments.length) {
+      trackLearningEvent('practice_completed', 'dictation', {
+        ownerUserId: user?.id,
+        attemptId: attemptIdRef.current ?? undefined,
+        targetId: selectedTheme || 'creative-dictation',
+        properties: {
+          mode: 'sentence',
+          total: clozeData.segments.length,
+          correct: sentResults.filter((result) => result.allCorrect).length,
+        },
+      });
       setSentDone(true);
     } else {
       setSentIdx(nextIdx);
@@ -573,6 +603,14 @@ const PracticeView: React.FC = () => {
     const selectedItems = notebook.filter(i => selectedVocabIds.has(i.id));
     if (selectedItems.length < 3) return;
     logFeatureEvent('story_generate');
+    attemptIdRef.current = createLearningAttemptId();
+    const analyticsModule: LearningModule = practiceMode === 'cloze' ? 'review' : 'dictation';
+    trackLearningEvent('practice_started', analyticsModule, {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current,
+      targetId: selectedTheme || 'creative-practice',
+      properties: { mode: practiceMode, vocabulary_count: selectedItems.length, level: currentLevel },
+    });
     stopGlobalSpeech();
     setLoading(true);
     setClozeData({ title: '创作中...', segments: [] });
@@ -643,6 +681,20 @@ const PracticeView: React.FC = () => {
           }
         }
       });
+    });
+    const total = clozeData.segments.reduce((count, segment) =>
+      count + (segment.french.match(/\{\{.*?\}\}/g)?.length ?? 0), 0);
+    trackLearningEvent('practice_submitted', 'review', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: selectedTheme || 'creative-cloze',
+      properties: { mode: 'cloze', total, correct: Math.max(0, total - wrongs.length), incorrect: wrongs.length },
+    });
+    trackLearningEvent('practice_completed', 'review', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: selectedTheme || 'creative-cloze',
+      properties: { mode: 'cloze', total, correct: Math.max(0, total - wrongs.length), incorrect: wrongs.length },
     });
     if (wrongs.length > 0) {
       addWrongAnswers(wrongs);

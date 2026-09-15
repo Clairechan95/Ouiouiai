@@ -15,6 +15,7 @@ interface SegmentVideoPlayerProps {
   src: string;
   range: VideoRange;
   maskSubtitles?: boolean;
+  onPlaybackError?: (reason: 'load' | 'play') => void;
 }
 
 const formatTime = (seconds: number) => {
@@ -23,10 +24,18 @@ const formatTime = (seconds: number) => {
 };
 
 const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlayerProps>(
-  ({ src, range, maskSubtitles = false }, ref) => {
+  ({ src, range, maskSubtitles = false, onPlaybackError }, ref) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [progress, setProgress] = useState(0);
     const [error, setError] = useState(false);
+    const errorReportedRef = useRef(false);
+
+    const reportError = (reason: 'load' | 'play') => {
+      setError(true);
+      if (errorReportedRef.current) return;
+      errorReportedRef.current = true;
+      onPlaybackError?.(reason);
+    };
 
     const seekToStart = () => {
       const video = videoRef.current;
@@ -43,7 +52,7 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
       try {
         await video.play();
       } catch {
-        setError(true);
+        reportError('play');
       }
     };
 
@@ -54,6 +63,7 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
       if (!video) return;
       video.pause();
       setError(false);
+      errorReportedRef.current = false;
       setProgress(0);
       video.load();
       if (video.readyState >= 1) seekToStart();
@@ -103,7 +113,7 @@ const SegmentVideoPlayer = forwardRef<SegmentVideoPlayerHandle, SegmentVideoPlay
             onLoadedMetadata={seekToStart}
             onTimeUpdate={handleTimeUpdate}
             onCanPlay={() => setError(false)}
-            onError={() => setError(true)}
+            onError={() => reportError('load')}
           />
           {maskSubtitles && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 flex h-[27%] items-center justify-center bg-gray-950/95 px-4 text-center text-xs font-bold text-white/70">

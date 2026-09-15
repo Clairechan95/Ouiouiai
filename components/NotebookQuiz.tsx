@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { NotebookItem } from '../types';
 import AudioPlayer from './AudioPlayer';
+import { useAppContext } from '../App';
+import { createLearningAttemptId, trackLearningEvent } from '../services/learningAnalyticsService';
 
 type QuizDirection = 'fr-zh' | 'zh-fr';
 type QuizPhase = 'main' | 'retry' | 'results';
@@ -74,6 +76,9 @@ const buildSession = (items: NotebookItem[]): QuizQuestion[] => {
 };
 
 const NotebookQuiz: React.FC<NotebookQuizProps> = ({ items, onExit }) => {
+  const { user } = useAppContext();
+  const attemptIdRef = useRef(createLearningAttemptId());
+  const startedForUserRef = useRef<string | null>(null);
   const [sessionNumber, setSessionNumber] = useState(1);
   const [questions, setQuestions] = useState<QuizQuestion[]>(() => buildSession(items));
   const [phase, setPhase] = useState<QuizPhase>('main');
@@ -88,8 +93,28 @@ const NotebookQuiz: React.FC<NotebookQuizProps> = ({ items, onExit }) => {
   const currentQuestion = questions[currentIndex];
   const answeredCorrectly = selectedAnswer === currentQuestion?.correctAnswer;
 
+  useEffect(() => {
+    if (!user?.id || startedForUserRef.current === user.id) return;
+    startedForUserRef.current = user.id;
+    trackLearningEvent('practice_started', 'review', {
+      ownerUserId: user.id,
+      attemptId: attemptIdRef.current,
+      targetId: 'notebook-quiz',
+      properties: { question_count: questions.length, format: 'bidirectional_multiple_choice' },
+    });
+  }, [user?.id]);
+
   const resetSession = () => {
     const nextQuestions = buildSession(items);
+    attemptIdRef.current = createLearningAttemptId();
+    if (user?.id) {
+      trackLearningEvent('practice_started', 'review', {
+        ownerUserId: user.id,
+        attemptId: attemptIdRef.current,
+        targetId: 'notebook-quiz',
+        properties: { question_count: nextQuestions.length, format: 'bidirectional_multiple_choice' },
+      });
+    }
     setSessionNumber(value => value + 1);
     setQuestions(nextQuestions);
     setPhase('main');
@@ -105,6 +130,17 @@ const NotebookQuiz: React.FC<NotebookQuizProps> = ({ items, onExit }) => {
   const selectAnswer = (answer: string) => {
     if (selectedAnswer || !currentQuestion) return;
     setSelectedAnswer(answer);
+    trackLearningEvent('practice_submitted', 'review', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current,
+      targetId: currentQuestion.item.text,
+      properties: {
+        correct: answer === currentQuestion.correctAnswer,
+        direction: currentQuestion.direction,
+        phase,
+        question_index: currentIndex + 1,
+      },
+    });
 
     if (answer === currentQuestion.correctAnswer) {
       if (phase === 'main') setMainCorrect(value => value + 1);
@@ -138,6 +174,17 @@ const NotebookQuiz: React.FC<NotebookQuizProps> = ({ items, onExit }) => {
       return;
     }
 
+    trackLearningEvent('practice_completed', 'review', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current,
+      targetId: 'notebook-quiz',
+      properties: {
+        question_count: mainTotal,
+        first_pass_correct: mainCorrect,
+        retry_correct: retryCorrect,
+        unresolved_count: new Set(remainingMisses.map((question) => question.item.id)).size,
+      },
+    });
     setPhase('results');
     setSelectedAnswer(null);
   };
@@ -145,7 +192,9 @@ const NotebookQuiz: React.FC<NotebookQuizProps> = ({ items, onExit }) => {
   if (phase === 'results') {
     const accuracy = mainTotal > 0 ? Math.round((mainCorrect / mainTotal) * 100) : 0;
     const masteredCount = mainCorrect + retryCorrect;
-    const weakWords = Array.from(new Map(remainingMisses.map(question => [question.item.id, question.item])).values());
+    const weakWords = Array.from(new Map<string, NotebookItem>(
+      remainingMisses.map((question): [string, NotebookItem] => [question.item.id, question.item]),
+    ).values());
 
     return (
       <div className="min-h-[85vh] bg-slate-50 px-4 py-8 sm:px-6 sm:py-12">

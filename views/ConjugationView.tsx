@@ -7,6 +7,7 @@ import { logFeatureEvent, logWrongAnswers } from '../services/analyticsService';
 import { SavedStory, WrongAnswer } from '../types';
 import AudioPlayer from '../components/AudioPlayer';
 import { cancelSpeech, speakFrench } from '../services/speechService';
+import { createLearningAttemptId, trackLearningEvent } from '../services/learningAnalyticsService';
 
 const buildConjHTMLPlayer = (title: string, subtitle: string, items: { id: number; fr: string; cn: string }[]) => `<!DOCTYPE html>
 <html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -59,7 +60,8 @@ interface Segment {
 }
 
 const ConjugationView: React.FC = () => {
-  const { notebook, currentLevel, savedStories, saveStory, deleteStory, addWrongAnswers } = useAppContext();
+  const { user, notebook, currentLevel, savedStories, saveStory, deleteStory, addWrongAnswers } = useAppContext();
+  const attemptIdRef = useRef<string | null>(null);
 
   // 提取动词并去重：若收藏的是变位形式（如 parlons），自动使用原形（parler）
   const verbMap = new Map<string, typeof notebook[0]>();
@@ -180,6 +182,20 @@ const ConjugationView: React.FC = () => {
         }
       });
     });
+    const total = story.segments.reduce((count, segment) =>
+      count + (segment.french.match(/\{\{.*?\|.*?\|.*?\}\}/g)?.length ?? 0), 0);
+    trackLearningEvent('practice_submitted', 'conjugation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: 'conjugation-story',
+      properties: { total, correct: Math.max(0, total - wrongs.length), incorrect: wrongs.length },
+    });
+    trackLearningEvent('practice_completed', 'conjugation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current ?? undefined,
+      targetId: 'conjugation-story',
+      properties: { total, correct: Math.max(0, total - wrongs.length), incorrect: wrongs.length },
+    });
     if (wrongs.length > 0) {
       addWrongAnswers(wrongs);
       logWrongAnswers(wrongs.map(w => ({
@@ -227,6 +243,13 @@ const ConjugationView: React.FC = () => {
   const handleGenerate = async (verbsToUse = selectedVerbs, tensesToUse = selectedTenses) => {
     if (verbsToUse.length === 0 || tensesToUse.length === 0) return;
     logFeatureEvent('conjugation_generate');
+    attemptIdRef.current = createLearningAttemptId();
+    trackLearningEvent('practice_started', 'conjugation', {
+      ownerUserId: user?.id,
+      attemptId: attemptIdRef.current,
+      targetId: 'conjugation-story',
+      properties: { verb_count: verbsToUse.length, tense_count: tensesToUse.length, level: currentLevel },
+    });
     setActiveTab('create');
     stopGlobalSpeech();
     setLoading(true);

@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import SegmentVideoPlayer, { SegmentVideoPlayerHandle, VideoRange } from '../components/SegmentVideoPlayer';
 import VocabularyRescue from '../components/VocabularyRescue';
+import { useAppContext } from '../App';
+import { trackLearningEvent } from '../services/learningAnalyticsService';
 import {
   DETAIL_OPTIONS,
   DictationField,
@@ -38,7 +40,10 @@ const getDictationFields = (speaker: ListeningSpeaker) =>
   speaker.dictationTemplate.filter((part): part is DictationField => typeof part !== 'string');
 
 const ListeningLessonView: React.FC = () => {
+  const { user } = useAppContext();
   const playerRef = useRef<SegmentVideoPlayerHandle>(null);
+  const analyticsStartedRef = useRef(false);
+  const analyticsCompletedRef = useRef(false);
   const [step, setStep] = useState(0);
   const [maxStep, setMaxStep] = useState(0);
   const [predictions, setPredictions] = useState<Set<string>>(new Set());
@@ -55,6 +60,34 @@ const ListeningLessonView: React.FC = () => {
   const [reflectionChoices, setReflectionChoices] = useState<Set<string>>(new Set());
   const [openedVocabulary, setOpenedVocabulary] = useState<Map<string, ListeningVocabulary>>(new Map());
   const [completed, setCompleted] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id || analyticsStartedRef.current) return;
+    analyticsStartedRef.current = true;
+    trackLearningEvent('lesson_started', 'listening', {
+      ownerUserId: user.id,
+      targetId: 'se-presenter',
+      properties: { content_version: 1 },
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!completed || !user?.id || analyticsCompletedRef.current) return;
+    analyticsCompletedRef.current = true;
+    trackLearningEvent('lesson_completed', 'listening', {
+      ownerUserId: user.id,
+      targetId: 'se-presenter',
+      properties: { content_version: 1 },
+    });
+  }, [completed, user?.id]);
+
+  const trackVideoError = (reason: 'load' | 'play') => {
+    trackLearningEvent('media_error', 'listening', {
+      ownerUserId: user?.id,
+      targetId: 'se-presenter',
+      properties: { media: 'video', reason, step },
+    });
+  };
 
   const targetSpeaker = LISTENING_SPEAKERS.find((item) => item.id === targetSpeakerId)!;
   const dictationSpeaker = LISTENING_SPEAKERS.find((item) => item.id === dictationSpeakerId)!;
@@ -651,7 +684,7 @@ const ListeningLessonView: React.FC = () => {
             <Headphones className="w-4 h-4" />原速真听力 · 分步策略训练
           </div>
           <p className="mt-2 mb-3 text-sm text-gray-500">外国学生分享他们在法国学习和生活的经历。</p>
-          <SegmentVideoPlayer ref={playerRef} src={videoSrc} range={videoRange} />
+          <SegmentVideoPlayer ref={playerRef} src={videoSrc} range={videoRange} onPlaybackError={trackVideoError} />
           <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-gray-400">
             <Lightbulb className="w-4 h-4 flex-shrink-0 mt-0.5" />
             {step === 0 && '先观察人物和场景，不提前显示目标词汇。'}
