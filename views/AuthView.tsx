@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { GraduationCap, Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle, UserRound, UsersRound, Hash } from 'lucide-react';
 import { supabase } from '../services/supabaseClient';
 
+const AUTH_EMAIL_REDIRECT_URL = 'https://ouiouiai.com/';
+
 const AuthView: React.FC = () => {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -14,8 +16,10 @@ const AuthView: React.FC = () => {
   const [inviteCode, setInviteCode] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false);
 
   useEffect(() => {
@@ -29,6 +33,7 @@ const AuthView: React.FC = () => {
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+    setCanResendConfirmation(false);
     setLoading(true);
 
     try {
@@ -37,6 +42,7 @@ const AuthView: React.FC = () => {
           email,
           password,
           options: {
+            emailRedirectTo: AUTH_EMAIL_REDIRECT_URL,
             data: {
               display_name: displayName.trim(),
               pending_student_number: studentNumber.trim() || null,
@@ -45,7 +51,8 @@ const AuthView: React.FC = () => {
           },
         });
         if (error) throw error;
-        setSuccessMsg('注册成功！请查收验证邮件，点击链接后即可登录。');
+        setCanResendConfirmation(true);
+        setSuccessMsg('注册成功！请查收验证邮件，点击链接后将返回 OuiOui AI。');
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -54,12 +61,41 @@ const AuthView: React.FC = () => {
     } catch (err: any) {
       const msg = err.message || '';
       if (msg.includes('Invalid login credentials')) setError('邮箱或密码错误，请重试');
-      else if (msg.includes('Email not confirmed')) setError('邮箱尚未验证，请查收验证邮件');
+      else if (msg.includes('Email not confirmed')) {
+        setCanResendConfirmation(true);
+        setError('邮箱尚未验证，请查收验证邮件；若原链接打不开，可重新发送');
+      }
       else if (msg.includes('User already registered')) setError('该邮箱已注册，请直接登录');
       else if (msg.includes('Password should be')) setError('密码至少需要6位');
       else setError(msg || '操作失败，请稍后重试');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email.trim()) {
+      setError('请先填写注册邮箱');
+      return;
+    }
+
+    setError('');
+    setSuccessMsg('');
+    setResendLoading(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: { emailRedirectTo: AUTH_EMAIL_REDIRECT_URL },
+      });
+      if (error) throw error;
+      setSuccessMsg('新的验证邮件已发送，请使用最新邮件中的链接。');
+    } catch (err: any) {
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('rate limit')) setError('发送过于频繁，请稍后再试');
+      else setError(msg || '验证邮件发送失败，请稍后重试');
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -94,7 +130,7 @@ const AuthView: React.FC = () => {
           {(['login', 'register'] as const).map(m => (
             <button
               key={m}
-              onClick={() => { setMode(m); setError(''); setSuccessMsg(''); }}
+              onClick={() => { setMode(m); setError(''); setSuccessMsg(''); setCanResendConfirmation(false); }}
               className={`flex-1 py-2.5 rounded-xl font-bold text-sm transition-all ${
                 mode === m ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-400'
               }`}
@@ -190,6 +226,17 @@ const AuthView: React.FC = () => {
               <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
               <p className="text-green-600 text-sm font-medium">{successMsg}</p>
             </div>
+          )}
+
+          {canResendConfirmation && (
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resendLoading}
+              className="w-full rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm font-bold text-primary transition-colors hover:bg-primary/10 disabled:opacity-60"
+            >
+              {resendLoading ? '正在发送...' : '重新发送验证邮件'}
+            </button>
           )}
 
           {mode === 'register' && inviteCode.trim() && <p className="text-xs leading-5 text-gray-500">加入班级后，任课教师可查看你的查词、练习及听力学习记录。</p>}
