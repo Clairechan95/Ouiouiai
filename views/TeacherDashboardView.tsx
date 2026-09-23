@@ -169,10 +169,12 @@ const TeacherDashboardView: React.FC = () => {
 
   const exportSummary = () => {
     const rows: unknown[][] = [[
-      '班级', '研究编号', '状态', '活跃天数', '会话数', '已知活跃分钟', '最近使用（北京时间）', '统计天数', '时区',
+      '班级', '姓名', '学号', '研究编号', '状态', '活跃天数', '会话数', '已知活跃分钟', '最近使用（北京时间）', '统计天数', '时区',
     ]];
     filteredLearners.filter(row => !selectedUserId || row.membership.user_id === selectedUserId).forEach((row) => rows.push([
       data?.classInfo.name,
+      row.profile?.display_name,
+      row.membership.student_number,
       row.membership.research_id,
       row.membership.status,
       row.activeDays.size,
@@ -189,12 +191,15 @@ const TeacherDashboardView: React.FC = () => {
     const membershipMap = new Map<string, TeacherMembership>(data.memberships.map((item) => [item.user_id, item]));
     const profileMap = new Map<string, LearnerProfile>(data.profiles.map((item) => [item.user_id, item]));
     const includedUsers = new Set(filteredLearners.filter(row => !selectedUserId || row.membership.user_id === selectedUserId).map(row => row.membership.user_id));
-    const rows: unknown[][] = [['班级', '研究编号', '发生时间（北京时间）', '模块', '事件', '对象', '会话ID', '事件ID', 'UTC时间', '统计天数']];
+    const rows: unknown[][] = [['班级', '姓名', '学号', '研究编号', '发生时间（北京时间）', '模块', '事件', '对象', '会话ID', '事件ID', 'UTC时间', '统计天数']];
     data.events.filter(event => includedUsers.has(event.user_id)).forEach((event) => {
       const membership = membershipMap.get(event.user_id);
+      const profile = profileMap.get(event.user_id);
       rows.push([
         data.classInfo.name,
-        membership?.research_id || profileMap.get(event.user_id)?.research_id,
+        profile?.display_name,
+        membership?.student_number,
+        membership?.research_id || profile?.research_id,
         formatDateTime(event.occurred_at),
         MODULE_LABELS[event.module] || event.module,
         EVENT_LABELS[event.event_type] || event.event_type,
