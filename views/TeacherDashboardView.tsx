@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  BookOpenCheck,
   CalendarDays,
   ChevronLeft,
   Clock3,
@@ -19,6 +20,7 @@ import {
   fetchTeacherClassData,
   TeacherClassData,
   TeacherEvent,
+  TeacherListeningRecord,
   TeacherMembership,
   TeacherSession,
 } from '../services/teacherAnalyticsService';
@@ -127,12 +129,14 @@ const TeacherDashboardView: React.FC = () => {
       const profile = data.profiles.find((item) => item.user_id === membership.user_id);
       const sessions = data.sessions.filter((session) => session.user_id === membership.user_id);
       const events = data.events.filter((event) => event.user_id === membership.user_id);
+      const listeningRecords = data.listeningRecords.filter((record) => record.user_id === membership.user_id && record.learning_archive);
       const activeDays = new Set(events.filter(isLearningAction).map((event) => localDateKey(event.occurred_at)));
       return {
         membership: { ...membership, research_id: membership.research_id || profile?.research_id || null },
         profile,
         sessions,
         events,
+        listeningRecords,
         activeDays,
         lastActive: events[0]?.occurred_at || sessions[0]?.last_active_at || null,
       };
@@ -154,6 +158,7 @@ const TeacherDashboardView: React.FC = () => {
   const activeLearners = new Set(learningEvents.filter(isLearningAction).map((event) => event.user_id)).size;
   const returningLearners = learnerRows.filter((row) => row.activeDays.size >= 2).length;
   const experienceErrors = data?.events.filter((event) => ['lookup_failed', 'media_error', 'request_timeout'].includes(event.event_type)).length ?? 0;
+  const listeningArchiveCount = data?.listeningRecords.filter((record) => record.learning_archive).length ?? 0;
 
   const moduleCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -201,6 +206,31 @@ const TeacherDashboardView: React.FC = () => {
     downloadCsv(`OuiOui_${data.classInfo.name}_${rangeDays}天事件明细.csv`, rows);
   };
 
+  const exportListeningArchives = () => {
+    if (!data) return;
+    const membershipMap = new Map<string, TeacherMembership>(data.memberships.map((item) => [item.user_id, item]));
+    const profileMap = new Map<string, LearnerProfile>(data.profiles.map((item) => [item.user_id, item]));
+    const includedUsers = new Set(filteredLearners.filter(row => !selectedUserId || row.membership.user_id === selectedUserId).map(row => row.membership.user_id));
+    const rows: unknown[][] = [['班级', '姓名', '学号', '研究编号', '课程', '完成时间（北京时间）', '成绩', '错误归纳', '学习策略', '个人表达']];
+    data.listeningRecords.filter(record => includedUsers.has(record.user_id) && record.learning_archive).forEach((record) => {
+      const archive = record.learning_archive!;
+      const membership = membershipMap.get(record.user_id);
+      rows.push([
+        data.classInfo.name,
+        profileMap.get(record.user_id)?.display_name,
+        membership?.student_number,
+        membership?.research_id || profileMap.get(record.user_id)?.research_id,
+        archive.courseTitle,
+        formatDateTime(archive.completedAt),
+        archive.scores.map(score => `${score.label} ${score.score}/${score.total}`).join('；'),
+        archive.errors.join('；'),
+        archive.strategies.join('；'),
+        archive.personalExpression || '',
+      ]);
+    });
+    downloadCsv(`OuiOui_${data.classInfo.name}_听力学习档案.csv`, rows);
+  };
+
   if (!authLoading && !user) return <Navigate to="/auth" replace />;
   if (accountError) return <div role="alert" className="py-12 text-sm text-red-600">{accountError}<button type="button" onClick={refreshAccountContext} className="ml-3 underline">重新加载</button></div>;
   if (!accountLoading && accountContext && accountContext.profile?.role !== 'teacher') return <Navigate to="/account" replace />;
@@ -220,6 +250,7 @@ const TeacherDashboardView: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={exportSummary} disabled={!data} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-black text-gray-600 disabled:opacity-40"><Download className="h-4 w-4" />导出汇总</button>
           <button type="button" onClick={exportEvents} disabled={!data} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-gray-800 px-4 text-sm font-black text-white disabled:opacity-40"><Download className="h-4 w-4" />导出明细</button>
+          <button type="button" onClick={exportListeningArchives} disabled={!data || listeningArchiveCount === 0} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white disabled:opacity-40"><Download className="h-4 w-4" />导出听力档案</button>
         </div>
       </header>
 
@@ -234,11 +265,12 @@ const TeacherDashboardView: React.FC = () => {
 
       {selectedClass && (
         <>
-          <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               [UsersRound, '活跃学习者', activeLearners, `班级共 ${data?.memberships.length ?? 0} 人`],
               [CalendarDays, '跨日回访', returningLearners, `最近 ${rangeDays} 天`],
               [Clock3, '学习会话', data?.sessions.length ?? 0, '真实会话记录'],
+              [BookOpenCheck, '听力档案', listeningArchiveCount, '已完成课程'],
               [AlertTriangle, '体验异常', experienceErrors, '失败与超时事件'],
             ].map(([Icon, label, value, note]) => {
               const MetricIcon = Icon as typeof UsersRound;
@@ -251,8 +283,8 @@ const TeacherDashboardView: React.FC = () => {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-lg font-black text-gray-800">学习者</h2><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="姓名、学号或研究编号" className="h-10 w-full rounded-lg border border-gray-200 pl-9 pr-3 text-sm outline-none focus:border-primary sm:w-64" /></label></div>
               <div className="mt-3 overflow-x-auto border border-gray-100 bg-white">
                 <table className="w-full min-w-[680px] text-left text-sm">
-                  <thead className="bg-gray-50 text-xs text-gray-400"><tr><th className="px-4 py-3">学习者</th><th className="px-4 py-3">研究编号</th><th className="px-4 py-3">活跃天数</th><th className="px-4 py-3">会话</th><th className="px-4 py-3">最近使用</th><th className="px-4 py-3"></th></tr></thead>
-                  <tbody className="divide-y divide-gray-100">{filteredLearners.map((row) => <tr key={row.membership.user_id}><td className="px-4 py-3"><strong className="block text-gray-800">{row.profile?.display_name || '未填写姓名'}</strong><span className="text-xs text-gray-400">{row.membership.student_number || '未填写学号'}</span></td><td className="px-4 py-3 font-mono text-xs text-gray-500">{row.membership.research_id || '待分配'}</td><td className="px-4 py-3 font-black text-gray-700">{row.activeDays.size}</td><td className="px-4 py-3 text-gray-600">{row.sessions.length}</td><td className="px-4 py-3 text-xs text-gray-500">{row.lastActive ? formatDateTime(row.lastActive) : '暂无记录'}</td><td className="px-4 py-3"><button type="button" onClick={() => setSelectedUserId(row.membership.user_id)} className="min-h-9 rounded-md px-3 text-xs font-black text-primary hover:bg-indigo-50">查看时间线</button></td></tr>)}</tbody>
+                  <thead className="bg-gray-50 text-xs text-gray-400"><tr><th className="px-4 py-3">学习者</th><th className="px-4 py-3">研究编号</th><th className="px-4 py-3">活跃天数</th><th className="px-4 py-3">会话</th><th className="px-4 py-3">听力档案</th><th className="px-4 py-3">最近使用</th><th className="px-4 py-3"></th></tr></thead>
+                  <tbody className="divide-y divide-gray-100">{filteredLearners.map((row) => <tr key={row.membership.user_id}><td className="px-4 py-3"><strong className="block text-gray-800">{row.profile?.display_name || '未填写姓名'}</strong><span className="text-xs text-gray-400">{row.membership.student_number || '未填写学号'}</span></td><td className="px-4 py-3 font-mono text-xs text-gray-500">{row.membership.research_id || '待分配'}</td><td className="px-4 py-3 font-black text-gray-700">{row.activeDays.size}</td><td className="px-4 py-3 text-gray-600">{row.sessions.length}</td><td className="px-4 py-3 font-black text-primary">{row.listeningRecords.length}</td><td className="px-4 py-3 text-xs text-gray-500">{row.lastActive ? formatDateTime(row.lastActive) : '暂无记录'}</td><td className="px-4 py-3"><button type="button" onClick={() => setSelectedUserId(row.membership.user_id)} className="min-h-9 rounded-md px-3 text-xs font-black text-primary hover:bg-indigo-50">查看时间线</button></td></tr>)}</tbody>
                 </table>
                 {!loading && filteredLearners.length === 0 && <p className="p-8 text-center text-sm text-gray-400">当前范围内没有匹配的学习者</p>}
               </div>
@@ -278,6 +310,7 @@ interface LearnerTimelineProps {
     profile: { display_name: string | null } | undefined;
     sessions: TeacherSession[];
     events: TeacherEvent[];
+    listeningRecords: TeacherListeningRecord[];
     activeDays: Set<string>;
     lastActive: string | null;
   };
@@ -286,7 +319,17 @@ interface LearnerTimelineProps {
 
 const LearnerTimeline: React.FC<LearnerTimelineProps> = ({ learner, onClose }) => {
   const sessionMap = new Map<string, TeacherSession>(learner.sessions.map((session) => [session.id, session]));
-  return <section className="mt-8 border-t border-gray-200 pt-7"><button type="button" onClick={onClose} className="inline-flex min-h-10 items-center gap-1 text-sm font-black text-primary"><ChevronLeft className="h-4 w-4" />返回班级概况</button><div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black text-gray-400">学习者时间线</p><h2 className="mt-1 text-2xl font-black text-gray-800">{learner.profile?.display_name || '未填写姓名'}</h2><p className="mt-1 text-sm text-gray-500">研究编号：{learner.membership.research_id || '待分配'} · 学号：{learner.membership.student_number || '未填写'}</p></div><div className="flex gap-4 text-sm text-gray-500"><span><strong className="text-gray-800">{learner.activeDays.size}</strong> 活跃天</span><span><strong className="text-gray-800">{learner.sessions.length}</strong> 次会话</span></div></div><div className="mt-5 space-y-3">{learner.events.map((event) => { const session = sessionMap.get(event.session_id); return <article key={event.id} className="grid gap-2 border-l-4 border-gray-200 bg-white px-4 py-3 sm:grid-cols-[130px_1fr_auto]"><time className="text-xs font-bold text-gray-400">{formatDateTime(event.occurred_at)}</time><div><strong className="text-sm text-gray-800">{EVENT_LABELS[event.event_type] || event.event_type}</strong><p className="mt-1 text-xs text-gray-400">{MODULE_LABELS[event.module] || event.module}{event.target_id ? ` · ${event.target_id}` : ''}</p></div><span className="inline-flex items-center gap-1 text-xs text-gray-400"><MonitorSmartphone className="h-4 w-4" />{session?.site === 'domestic' ? '国内站' : session?.site === 'backup' ? '备用站' : session?.site === 'local' ? '本地' : '来源未知'} · {session?.device_category || '未知设备'}</span></article>; })}{learner.events.length === 0 && <p className="border border-gray-100 bg-white p-8 text-center text-sm text-gray-400">当前时间范围内没有学习事件</p>}</div></section>;
+  return <section className="mt-8 border-t border-gray-200 pt-7">
+    <button type="button" onClick={onClose} className="inline-flex min-h-10 items-center gap-1 text-sm font-black text-primary"><ChevronLeft className="h-4 w-4" />返回班级概况</button>
+    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black text-gray-400">学习者时间线</p><h2 className="mt-1 text-2xl font-black text-gray-800">{learner.profile?.display_name || '未填写姓名'}</h2><p className="mt-1 text-sm text-gray-500">研究编号：{learner.membership.research_id || '待分配'} · 学号：{learner.membership.student_number || '未填写'}</p></div><div className="flex gap-4 text-sm text-gray-500"><span><strong className="text-gray-800">{learner.activeDays.size}</strong> 活跃天</span><span><strong className="text-gray-800">{learner.sessions.length}</strong> 次会话</span><span><strong className="text-gray-800">{learner.listeningRecords.length}</strong> 份听力档案</span></div></div>
+
+    {learner.listeningRecords.length > 0 && <section className="mt-6"><h3 className="flex items-center gap-2 text-lg font-black text-gray-800"><BookOpenCheck className="h-5 w-5 text-primary" />听力学习档案</h3><div className="mt-3 grid gap-4 lg:grid-cols-2">{learner.listeningRecords.map((record) => {
+      const archive = record.learning_archive!;
+      return <article key={record.course_id} className="rounded-lg border border-gray-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><h4 className="font-black text-gray-800">{archive.courseTitle}</h4><time className="text-xs text-gray-400">{formatDateTime(archive.completedAt)}</time></div><div className="mt-3 flex flex-wrap gap-2">{archive.scores.map((score) => <span key={score.label} className="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-bold text-gray-600">{score.label} {score.score}/{score.total}</span>)}</div><p className="mt-3 text-sm leading-6 text-gray-600"><strong className="text-gray-800">错误归纳：</strong>{archive.errors.length ? archive.errors.join('；') : '本次练习全部正确。'}</p>{archive.strategies.length > 0 && <p className="mt-2 text-sm leading-6 text-gray-600"><strong className="text-gray-800">学习策略：</strong>{archive.strategies.join('；')}</p>}{archive.personalExpression && <div className="mt-3 border-l-4 border-primary bg-indigo-50 px-3 py-2 text-sm leading-6 text-gray-700"><strong className="block text-xs text-primary">个人表达</strong>{archive.personalExpression}</div>}</article>;
+    })}</div></section>}
+
+    <section className="mt-7"><h3 className="text-lg font-black text-gray-800">学习事件</h3><div className="mt-3 space-y-3">{learner.events.map((event) => { const session = sessionMap.get(event.session_id); return <article key={event.id} className="grid gap-2 border-l-4 border-gray-200 bg-white px-4 py-3 sm:grid-cols-[130px_1fr_auto]"><time className="text-xs font-bold text-gray-400">{formatDateTime(event.occurred_at)}</time><div><strong className="text-sm text-gray-800">{EVENT_LABELS[event.event_type] || event.event_type}</strong><p className="mt-1 text-xs text-gray-400">{MODULE_LABELS[event.module] || event.module}{event.target_id ? ` · ${event.target_id}` : ''}</p></div><span className="inline-flex items-center gap-1 text-xs text-gray-400"><MonitorSmartphone className="h-4 w-4" />{session?.site === 'domestic' ? '国内站' : session?.site === 'backup' ? '备用站' : session?.site === 'local' ? '本地' : '来源未知'} · {session?.device_category || '未知设备'}</span></article>; })}{learner.events.length === 0 && <p className="border border-gray-100 bg-white p-8 text-center text-sm text-gray-400">当前时间范围内没有学习事件</p>}</div></section>
+  </section>;
 };
 
 export default TeacherDashboardView;

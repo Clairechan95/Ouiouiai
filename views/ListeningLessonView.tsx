@@ -15,6 +15,8 @@ import SegmentVideoPlayer, { SegmentVideoPlayerHandle, VideoRange } from '../com
 import VocabularyRescue from '../components/VocabularyRescue';
 import { useAppContext } from '../App';
 import { trackLearningEvent } from '../services/learningAnalyticsService';
+import { useListeningProgress } from '../hooks/useListeningProgress';
+import { loadLocalListeningRecord } from '../services/listeningProgressService';
 import {
   DETAIL_OPTIONS,
   DictationField,
@@ -32,6 +34,25 @@ const PREDICTION_OPTIONS = ['姓名', '国籍', '所在城市', '来法国的时
 
 type MatchKey = `${ListeningSpeakerId}-${'nationality' | 'detail'}`;
 
+type SePresenterProgress = {
+  step: number;
+  maxStep: number;
+  predictions: string[];
+  gistAnswer: number | null;
+  matches: Partial<Record<MatchKey, string>>;
+  matchSubmitted: boolean;
+  targetSpeakerId: ListeningSpeakerId;
+  completedTargets: ListeningSpeakerId[];
+  supportLevels: Partial<Record<ListeningSpeakerId, number>>;
+  usedSupports: string[];
+  dictationSpeakerId: ListeningSpeakerId;
+  dictationInputs: Record<string, string>;
+  reviewedDictations: ListeningSpeakerId[];
+  reflectionChoices: string[];
+  openedVocabulary: Array<[string, ListeningVocabulary]>;
+  completed: boolean;
+};
+
 const normalizeAnswer = (value: string) => value.trim().toLocaleLowerCase('fr-FR').normalize('NFC');
 const withoutAccents = (value: string) =>
   normalizeAnswer(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -44,22 +65,25 @@ const ListeningLessonView: React.FC = () => {
   const playerRef = useRef<SegmentVideoPlayerHandle>(null);
   const analyticsStartedRef = useRef(false);
   const analyticsCompletedRef = useRef(false);
-  const [step, setStep] = useState(0);
-  const [maxStep, setMaxStep] = useState(0);
-  const [predictions, setPredictions] = useState<Set<string>>(new Set());
-  const [gistAnswer, setGistAnswer] = useState<number | null>(null);
-  const [matches, setMatches] = useState<Partial<Record<MatchKey, string>>>({});
-  const [matchSubmitted, setMatchSubmitted] = useState(false);
-  const [targetSpeakerId, setTargetSpeakerId] = useState<ListeningSpeakerId>('jeena');
-  const [completedTargets, setCompletedTargets] = useState<Set<ListeningSpeakerId>>(new Set());
-  const [supportLevels, setSupportLevels] = useState<Partial<Record<ListeningSpeakerId, number>>>({});
-  const [usedSupports, setUsedSupports] = useState<Set<string>>(new Set());
-  const [dictationSpeakerId, setDictationSpeakerId] = useState<ListeningSpeakerId>('jeena');
-  const [dictationInputs, setDictationInputs] = useState<Record<string, string>>({});
-  const [reviewedDictations, setReviewedDictations] = useState<Set<ListeningSpeakerId>>(new Set());
-  const [reflectionChoices, setReflectionChoices] = useState<Set<string>>(new Set());
-  const [openedVocabulary, setOpenedVocabulary] = useState<Map<string, ListeningVocabulary>>(new Map());
-  const [completed, setCompleted] = useState(false);
+  const [initialRecord] = useState(() => loadLocalListeningRecord<SePresenterProgress>('se-presenter', user?.id));
+  const initialProgress = initialRecord?.progressState;
+  const [step, setStep] = useState(initialProgress?.step ?? 0);
+  const [maxStep, setMaxStep] = useState(initialProgress?.maxStep ?? 0);
+  const [predictions, setPredictions] = useState<Set<string>>(new Set(initialProgress?.predictions ?? []));
+  const [gistAnswer, setGistAnswer] = useState<number | null>(initialProgress?.gistAnswer ?? null);
+  const [matches, setMatches] = useState<Partial<Record<MatchKey, string>>>(initialProgress?.matches ?? {});
+  const [matchSubmitted, setMatchSubmitted] = useState(initialProgress?.matchSubmitted ?? false);
+  const [targetSpeakerId, setTargetSpeakerId] = useState<ListeningSpeakerId>(initialProgress?.targetSpeakerId ?? 'jeena');
+  const [completedTargets, setCompletedTargets] = useState<Set<ListeningSpeakerId>>(new Set(initialProgress?.completedTargets ?? []));
+  const [supportLevels, setSupportLevels] = useState<Partial<Record<ListeningSpeakerId, number>>>(initialProgress?.supportLevels ?? {});
+  const [usedSupports, setUsedSupports] = useState<Set<string>>(new Set(initialProgress?.usedSupports ?? []));
+  const [dictationSpeakerId, setDictationSpeakerId] = useState<ListeningSpeakerId>(initialProgress?.dictationSpeakerId ?? 'jeena');
+  const [dictationInputs, setDictationInputs] = useState<Record<string, string>>(initialProgress?.dictationInputs ?? {});
+  const [reviewedDictations, setReviewedDictations] = useState<Set<ListeningSpeakerId>>(new Set(initialProgress?.reviewedDictations ?? []));
+  const [reflectionChoices, setReflectionChoices] = useState<Set<string>>(new Set(initialProgress?.reflectionChoices ?? []));
+  const [openedVocabulary, setOpenedVocabulary] = useState<Map<string, ListeningVocabulary>>(new Map<string, ListeningVocabulary>(initialProgress?.openedVocabulary ?? []));
+  const [completed, setCompleted] = useState(initialProgress?.completed ?? false);
+  const [completedAt, setCompletedAt] = useState<string | null>(initialRecord?.completedAt ?? null);
 
   useEffect(() => {
     if (!user?.id || analyticsStartedRef.current) return;
@@ -224,19 +248,66 @@ const ListeningLessonView: React.FC = () => {
     return { errors, matchCorrect, dictationCorrect, dictationTotal };
   }, [dictationInputs, matches]);
 
-  useEffect(() => {
-    if (step !== 5) return;
-    localStorage.setItem('ouioui-listening-se-presenter-result', JSON.stringify({
-      completedAt: new Date().toISOString(),
-      gistAnswer,
-      matchScore: summary.matchCorrect,
-      dictationScore: summary.dictationCorrect,
-      dictationTotal: summary.dictationTotal,
-      errors: summary.errors,
-      usedSupports: Array.from(usedSupports),
-      vocabularyHelp: Array.from(openedVocabulary.values()).map((entry) => entry.lookupTerm),
-    }));
-  }, [gistAnswer, openedVocabulary, step, summary, usedSupports]);
+  const progressState = useMemo<SePresenterProgress>(() => ({
+    step,
+    maxStep,
+    predictions: Array.from(predictions),
+    gistAnswer,
+    matches,
+    matchSubmitted,
+    targetSpeakerId,
+    completedTargets: Array.from(completedTargets),
+    supportLevels,
+    usedSupports: Array.from(usedSupports),
+    dictationSpeakerId,
+    dictationInputs,
+    reviewedDictations: Array.from(reviewedDictations),
+    reflectionChoices: Array.from(reflectionChoices),
+    openedVocabulary: Array.from(openedVocabulary.entries()),
+    completed,
+  }), [completed, completedTargets, dictationInputs, dictationSpeakerId, gistAnswer, matchSubmitted, matches, maxStep, openedVocabulary, predictions, reflectionChoices, reviewedDictations, step, supportLevels, targetSpeakerId, usedSupports]);
+
+  const learningArchive = useMemo(() => !completed ? null : ({
+    courseTitle: 'Se présenter en France',
+    completedAt: completedAt ?? new Date().toISOString(),
+    scores: [
+      { label: '内容核验', score: summary.matchCorrect, total: 6 },
+      { label: '关键词听写', score: summary.dictationCorrect, total: summary.dictationTotal },
+    ],
+    errors: summary.errors,
+    strategies: Array.from(reflectionChoices),
+    supports: Array.from(usedSupports),
+    vocabularyHelp: Array.from(openedVocabulary.values() as Iterable<ListeningVocabulary>).map((entry) => entry.display),
+  }), [completed, completedAt, openedVocabulary, reflectionChoices, summary, usedSupports]);
+
+  useListeningProgress<SePresenterProgress>({
+    courseId: 'se-presenter',
+    userId: user?.id,
+    currentStep: step,
+    maxStep,
+    progressState,
+    learningArchive,
+    onRestore: (record) => {
+      const restored = record.progressState;
+      setStep(restored.step ?? 0);
+      setMaxStep(restored.maxStep ?? 0);
+      setPredictions(new Set(restored.predictions ?? []));
+      setGistAnswer(restored.gistAnswer ?? null);
+      setMatches(restored.matches ?? {});
+      setMatchSubmitted(restored.matchSubmitted ?? false);
+      setTargetSpeakerId(restored.targetSpeakerId ?? 'jeena');
+      setCompletedTargets(new Set(restored.completedTargets ?? []));
+      setSupportLevels(restored.supportLevels ?? {});
+      setUsedSupports(new Set(restored.usedSupports ?? []));
+      setDictationSpeakerId(restored.dictationSpeakerId ?? 'jeena');
+      setDictationInputs(restored.dictationInputs ?? {});
+      setReviewedDictations(new Set(restored.reviewedDictations ?? []));
+      setReflectionChoices(new Set(restored.reflectionChoices ?? []));
+      setOpenedVocabulary(new Map<string, ListeningVocabulary>(restored.openedVocabulary ?? []));
+      setCompleted(restored.completed ?? record.status === 'completed');
+      setCompletedAt(record.completedAt);
+    },
+  });
 
   const renderMatchGroup = (speaker: ListeningSpeaker, type: 'nationality' | 'detail') => {
     const key = `${speaker.id}-${type}` as MatchKey;
@@ -596,7 +667,7 @@ const ListeningLessonView: React.FC = () => {
             {openedVocabulary.size > 0 && (
               <li className="flex gap-2">
                 <span className="mt-2 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                词义求助：{Array.from(openedVocabulary.values()).map((entry) => entry.display).join('、')}
+                词义求助：{Array.from(openedVocabulary.values() as Iterable<ListeningVocabulary>).map((entry) => entry.display).join('、')}
               </li>
             )}
           </ul>
@@ -626,12 +697,15 @@ const ListeningLessonView: React.FC = () => {
 
         {completed ? (
           <div className="mt-7 bg-emerald-50 text-emerald-700 p-4 rounded-lg text-center font-bold">
-            本节学习记录已保存在当前设备。
+            本节学习档案已自动保存，可在“真实素材听力”中随时回顾。
           </div>
         ) : (
           <button
             type="button"
-            onClick={() => setCompleted(true)}
+            onClick={() => {
+              setCompletedAt((current) => current ?? new Date().toISOString());
+              setCompleted(true);
+            }}
             className="mt-7 w-full min-h-12 rounded-lg bg-primary text-white font-black"
           >
             完成课程

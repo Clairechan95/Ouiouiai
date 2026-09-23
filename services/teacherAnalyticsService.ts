@@ -33,12 +33,33 @@ export interface TeacherEvent {
   properties: Record<string, unknown>;
 }
 
+export interface TeacherListeningRecord {
+  user_id: string;
+  course_id: string;
+  status: 'in_progress' | 'completed';
+  current_step: number;
+  max_step: number;
+  learning_archive: {
+    courseTitle: string;
+    completedAt: string;
+    scores: Array<{ label: string; score: number; total: number }>;
+    errors: string[];
+    strategies: string[];
+    personalExpression?: string;
+    supports?: string[];
+    vocabularyHelp?: string[];
+  } | null;
+  completed_at: string | null;
+  updated_at: string;
+}
+
 export interface TeacherClassData {
   classInfo: OuiOuiClass;
   memberships: TeacherMembership[];
   profiles: LearnerProfile[];
   sessions: TeacherSession[];
   events: TeacherEvent[];
+  listeningRecords: TeacherListeningRecord[];
 }
 
 async function readPages<T>(query: (offset: number) => any): Promise<T[]> {
@@ -67,13 +88,13 @@ export const fetchTeacherClassData = async (
   const userIds = memberships.map((membership) => membership.user_id);
 
   if (userIds.length === 0) {
-    return { classInfo, memberships, profiles: [], sessions: [], events: [] };
+    return { classInfo, memberships, profiles: [], sessions: [], events: [], listeningRecords: [] };
   }
 
-  const profiles: LearnerProfile[] = [], sessions: TeacherSession[] = [], events: TeacherEvent[] = [];
+  const profiles: LearnerProfile[] = [], sessions: TeacherSession[] = [], events: TeacherEvent[] = [], listeningRecords: TeacherListeningRecord[] = [];
   for (let offset = 0; offset < userIds.length; offset += 50) {
     const users = userIds.slice(offset, offset + 50);
-    const [profileRows, sessionRows, eventRows] = await Promise.all([
+    const [profileRows, sessionRows, eventRows, listeningRows] = await Promise.all([
     readPages<LearnerProfile>(page => supabase
       .from('learner_profiles')
       .select('user_id, role, display_name, research_id')
@@ -93,16 +114,22 @@ export const fetchTeacherClassData = async (
       .lte('occurred_at', throughIso)
       .order('occurred_at', { ascending: false }).order('id')
       .range(page, page + 499).abortSignal(signal)),
+    readPages<TeacherListeningRecord>(page => supabase
+      .from('listening_learning_records')
+      .select('user_id, course_id, status, current_step, max_step, learning_archive, completed_at, updated_at')
+      .in('user_id', users)
+      .order('updated_at', { ascending: false })
+      .range(page, page + 499).abortSignal(signal)).catch(() => []),
   ]);
     profiles.push(...profileRows);
     sessions.push(...sessionRows);
     events.push(...eventRows);
+    listeningRecords.push(...listeningRows);
   }
   sessions.sort((a, b) => b.started_at.localeCompare(a.started_at));
   events.sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
+  listeningRecords.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
   return {
-    classInfo,
-    memberships,
-    profiles, sessions, events,
+    classInfo, memberships, profiles, sessions, events, listeningRecords,
   };
 };

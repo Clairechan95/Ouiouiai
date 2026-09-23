@@ -20,7 +20,7 @@ test('teacher database: real PostgreSQL migrations, ownership and retry isolatio
       grant execute on function auth.uid() to anon, authenticated;
       alter default privileges in schema public grant all on tables to anon, authenticated;
     `);
-    for (const file of ['0002_teacher_analytics_phase1.sql', '0003_learning_event_ingest.sql', '0004_analytics_access_guards.sql', '0004_analytics_access_guards.sql']) {
+    for (const file of ['0002_teacher_analytics_phase1.sql', '0003_learning_event_ingest.sql', '0004_analytics_access_guards.sql', '0004_analytics_access_guards.sql', '0005_listening_learning_records.sql']) {
       await db.exec(await readFile(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
     }
     const [teacher, otherTeacher, student, otherStudent] = Array.from({ length: 4 }, randomUUID);
@@ -54,19 +54,25 @@ test('teacher database: real PostgreSQL migrations, ownership and retry isolatio
     assert.equal((await ingest(session, [event])).rows[0].n, 1);
     assert.equal((await ingest(session, [event])).rows[0].n, 0);
     assert.equal((await db.query('select * from learning_events')).rows.length, 1);
+    await db.query("insert into listening_learning_records(user_id,course_id,status,current_step,max_step,progress_state) values($1,'se-presenter','in_progress',2,2,$2::jsonb)", [student, JSON.stringify({ step: 2 })]);
+    assert.equal((await db.query('select * from listening_learning_records')).rows.length, 1);
+    await assert.rejects(db.query("insert into listening_learning_records(user_id,course_id) values($1,'pourquoi-francais')", [otherStudent]), /row-level security/);
     await assert.rejects(ingest(session, [{ ...event, user_id: otherStudent }]), /identity mismatch/);
     await assert.rejects(ingest({ ...session, site: 'backup' }, [event]), /metadata mismatch/);
     await assert.rejects(ingest(session, Array(51).fill(event)), /batch size/);
     await assert.rejects(db.query('select ingest_learning_batch_internal($1,$2)', [JSON.stringify(session), JSON.stringify([event])]), /permission denied/);
     await login(teacher);
     assert.equal((await db.query('select * from learning_events')).rows.length, 1);
+    assert.equal((await db.query('select * from listening_learning_records')).rows.length, 1);
     await assert.rejects(db.query('insert into class_memberships(class_id,user_id) values($1,$2)', [classA, otherStudent]), /permission denied/);
     await assert.rejects(db.query('update class_memberships set user_id=$1', [otherStudent]), /permission denied/);
     await login(otherTeacher);
     assert.equal((await db.query('select * from learning_events')).rows.length, 0);
+    assert.equal((await db.query('select * from listening_learning_records')).rows.length, 0);
     await login(teacher);
     await db.exec("update class_memberships set status='inactive'");
     assert.equal((await db.query('select * from learning_events')).rows.length, 0);
+    assert.equal((await db.query('select * from listening_learning_records')).rows.length, 0);
     await login('', 'anon');
     await assert.rejects(db.query('select * from learner_profiles'), /permission denied/);
     await assert.rejects(ingest(session, [event]), /permission denied/);

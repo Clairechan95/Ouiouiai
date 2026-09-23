@@ -5,6 +5,8 @@ import SegmentVideoPlayer, { SegmentVideoPlayerHandle } from '../components/Segm
 import VocabularyRescue from '../components/VocabularyRescue';
 import { useAppContext } from '../App';
 import { trackLearningEvent } from '../services/learningAnalyticsService';
+import { useListeningProgress } from '../hooks/useListeningProgress';
+import { loadLocalListeningRecord } from '../services/listeningProgressService';
 import {
   REASON_SECTIONS,
   REASONS_COMPREHENSION_QUESTIONS,
@@ -27,6 +29,25 @@ const PERSONAL_EXPRESSION_MODELS = [
 ];
 const normalize = (value: string) => value.trim().toLocaleLowerCase('fr-FR').normalize('NFC');
 const noAccents = (value: string) => normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+type ReasonsProgress = {
+  step: number;
+  maxStep: number;
+  predictions: string[];
+  gist: number | null;
+  comprehensionAnswers: Record<string, string>;
+  comprehensionSubmitted: boolean;
+  visibleQuestionHelp: string[];
+  targetId: ReasonSectionId;
+  completedTargets: ReasonSectionId[];
+  supportLevels: Partial<Record<ReasonSectionId, number>>;
+  dictationId: ReasonSectionId;
+  inputs: Record<string, string>;
+  reviewed: ReasonSectionId[];
+  shownDictationTranslations: ReasonSectionId[];
+  reflection: string[];
+  personalExpression: string;
+};
 const fieldsFor = (sectionId: ReasonSectionId) => {
   const section = REASON_SECTIONS.find((item) => item.id === sectionId)!;
   return section.dictationTemplate.filter((part): part is ReasonDictationField => typeof part !== 'string');
@@ -37,22 +58,25 @@ const ListeningReasonsView: React.FC = () => {
   const playerRef = useRef<SegmentVideoPlayerHandle>(null);
   const analyticsStartedRef = useRef(false);
   const analyticsCompletedRef = useRef(false);
-  const [step, setStep] = useState(0);
-  const [maxStep, setMaxStep] = useState(0);
-  const [predictions, setPredictions] = useState<Set<string>>(new Set());
-  const [gist, setGist] = useState<number | null>(null);
-  const [comprehensionAnswers, setComprehensionAnswers] = useState<Record<string, string>>({});
-  const [comprehensionSubmitted, setComprehensionSubmitted] = useState(false);
-  const [visibleQuestionHelp, setVisibleQuestionHelp] = useState<Set<string>>(new Set());
-  const [targetId, setTargetId] = useState<ReasonSectionId>('images');
-  const [completedTargets, setCompletedTargets] = useState<Set<ReasonSectionId>>(new Set());
-  const [supportLevels, setSupportLevels] = useState<Partial<Record<ReasonSectionId, number>>>({});
-  const [dictationId, setDictationId] = useState<ReasonSectionId>('images');
-  const [inputs, setInputs] = useState<Record<string, string>>({});
-  const [reviewed, setReviewed] = useState<Set<ReasonSectionId>>(new Set());
-  const [shownDictationTranslations, setShownDictationTranslations] = useState<Set<ReasonSectionId>>(new Set());
-  const [reflection, setReflection] = useState<Set<string>>(new Set());
-  const [personalExpression, setPersonalExpression] = useState(PERSONAL_EXPRESSION_MODELS[0].text);
+  const [initialRecord] = useState(() => loadLocalListeningRecord<ReasonsProgress>('pourquoi-francais', user?.id));
+  const initial = initialRecord?.progressState;
+  const [step, setStep] = useState(initial?.step ?? 0);
+  const [maxStep, setMaxStep] = useState(initial?.maxStep ?? 0);
+  const [predictions, setPredictions] = useState<Set<string>>(new Set(initial?.predictions ?? []));
+  const [gist, setGist] = useState<number | null>(initial?.gist ?? null);
+  const [comprehensionAnswers, setComprehensionAnswers] = useState<Record<string, string>>(initial?.comprehensionAnswers ?? {});
+  const [comprehensionSubmitted, setComprehensionSubmitted] = useState(initial?.comprehensionSubmitted ?? false);
+  const [visibleQuestionHelp, setVisibleQuestionHelp] = useState<Set<string>>(new Set(initial?.visibleQuestionHelp ?? []));
+  const [targetId, setTargetId] = useState<ReasonSectionId>(initial?.targetId ?? 'images');
+  const [completedTargets, setCompletedTargets] = useState<Set<ReasonSectionId>>(new Set(initial?.completedTargets ?? []));
+  const [supportLevels, setSupportLevels] = useState<Partial<Record<ReasonSectionId, number>>>(initial?.supportLevels ?? {});
+  const [dictationId, setDictationId] = useState<ReasonSectionId>(initial?.dictationId ?? 'images');
+  const [inputs, setInputs] = useState<Record<string, string>>(initial?.inputs ?? {});
+  const [reviewed, setReviewed] = useState<Set<ReasonSectionId>>(new Set(initial?.reviewed ?? []));
+  const [shownDictationTranslations, setShownDictationTranslations] = useState<Set<ReasonSectionId>>(new Set(initial?.shownDictationTranslations ?? []));
+  const [reflection, setReflection] = useState<Set<string>>(new Set(initial?.reflection ?? []));
+  const [personalExpression, setPersonalExpression] = useState(initial?.personalExpression ?? PERSONAL_EXPRESSION_MODELS[0].text);
+  const [completedAt, setCompletedAt] = useState<string | null>(initialRecord?.completedAt ?? null);
 
   useEffect(() => {
     if (!user?.id || analyticsStartedRef.current) return;
@@ -73,6 +97,10 @@ const ListeningReasonsView: React.FC = () => {
       properties: { content_version: 1 },
     });
   }, [step, user?.id]);
+
+  useEffect(() => {
+    if (step === 5) setCompletedAt((current) => current ?? new Date().toISOString());
+  }, [step]);
 
   const trackVideoError = (reason: 'load' | 'play') => {
     trackLearningEvent('media_error', 'listening', {
@@ -100,7 +128,7 @@ const ListeningReasonsView: React.FC = () => {
   };
 
   const finishTarget = () => {
-    const done = new Set(completedTargets).add(targetId);
+    const done = new Set<ReasonSectionId>(completedTargets).add(targetId);
     setCompletedTargets(done);
     const next = nextSection(targetId, done);
     if (next) setTargetId(next.id); else go(4);
@@ -109,10 +137,10 @@ const ListeningReasonsView: React.FC = () => {
   const checkDictation = () => {
     if (!reviewed.has(dictationId)) {
       if (!fieldsFor(dictationId).some((field) => inputs[field.id]?.trim())) return;
-      setReviewed((current) => new Set(current).add(dictationId));
+      setReviewed((current) => new Set<ReasonSectionId>(current).add(dictationId));
       return;
     }
-    const done = new Set(reviewed).add(dictationId);
+    const done = new Set<ReasonSectionId>(reviewed).add(dictationId);
     const next = nextSection(dictationId, done);
     if (next) setDictationId(next.id); else go(5);
   };
@@ -133,6 +161,66 @@ const ListeningReasonsView: React.FC = () => {
     if (comprehensionCorrect < REASONS_COMPREHENSION_QUESTIONS.length) errors.unshift('内容核验：部分关键词或核心内容还需要再次确认');
     return { comprehensionCorrect, dictationCorrect, dictationTotal, errors };
   }, [comprehensionAnswers, inputs]);
+
+  const progressState = useMemo<ReasonsProgress>(() => ({
+    step,
+    maxStep,
+    predictions: Array.from(predictions),
+    gist,
+    comprehensionAnswers,
+    comprehensionSubmitted,
+    visibleQuestionHelp: Array.from(visibleQuestionHelp),
+    targetId,
+    completedTargets: Array.from(completedTargets),
+    supportLevels,
+    dictationId,
+    inputs,
+    reviewed: Array.from(reviewed),
+    shownDictationTranslations: Array.from(shownDictationTranslations),
+    reflection: Array.from(reflection),
+    personalExpression,
+  }), [completedTargets, comprehensionAnswers, comprehensionSubmitted, dictationId, gist, inputs, maxStep, personalExpression, predictions, reflection, reviewed, shownDictationTranslations, step, supportLevels, targetId, visibleQuestionHelp]);
+
+  const learningArchive = useMemo(() => step !== 5 ? null : ({
+    courseTitle: 'Pourquoi choisir le français ?',
+    completedAt: completedAt ?? new Date().toISOString(),
+    scores: [
+      { label: '内容核验', score: summary.comprehensionCorrect, total: REASONS_COMPREHENSION_QUESTIONS.length },
+      { label: '关键词听写', score: summary.dictationCorrect, total: summary.dictationTotal },
+    ],
+    errors: summary.errors,
+    strategies: Array.from(reflection),
+    personalExpression,
+  }), [completedAt, personalExpression, reflection, step, summary]);
+
+  useListeningProgress<ReasonsProgress>({
+    courseId: 'pourquoi-francais',
+    userId: user?.id,
+    currentStep: step,
+    maxStep,
+    progressState,
+    learningArchive,
+    onRestore: (record) => {
+      const restored = record.progressState;
+      setStep(restored.step ?? 0);
+      setMaxStep(restored.maxStep ?? 0);
+      setPredictions(new Set(restored.predictions ?? []));
+      setGist(restored.gist ?? null);
+      setComprehensionAnswers(restored.comprehensionAnswers ?? {});
+      setComprehensionSubmitted(restored.comprehensionSubmitted ?? false);
+      setVisibleQuestionHelp(new Set(restored.visibleQuestionHelp ?? []));
+      setTargetId(restored.targetId ?? 'images');
+      setCompletedTargets(new Set(restored.completedTargets ?? []));
+      setSupportLevels(restored.supportLevels ?? {});
+      setDictationId(restored.dictationId ?? 'images');
+      setInputs(restored.inputs ?? {});
+      setReviewed(new Set(restored.reviewed ?? []));
+      setShownDictationTranslations(new Set(restored.shownDictationTranslations ?? []));
+      setReflection(new Set(restored.reflection ?? []));
+      setPersonalExpression(restored.personalExpression ?? PERSONAL_EXPRESSION_MODELS[0].text);
+      setCompletedAt(record.completedAt);
+    },
+  });
 
   const sectionTabs = (active: ReasonSectionId, setActive: (id: ReasonSectionId) => void) => (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -209,7 +297,7 @@ const ListeningReasonsView: React.FC = () => {
         ].map(([level, label]) => <button key={level} type="button" onClick={() => { const value = Number(level); if (value === 1) playerRef.current?.replay(); else setSupportLevels((current) => ({ ...current, [targetId]: Math.max(current[targetId] ?? 0, value) })); }} className={`min-h-11 rounded-lg border px-2 text-xs font-black ${supportLevel >= Number(level) && Number(level) > 1 ? 'border-primary bg-indigo-50 text-primary' : 'border-gray-200 bg-white text-gray-600'}`}>{level}. {label}</button>)}</div>
         {supportLevel >= 2 && <div className="mt-4 rounded-lg bg-gray-50 p-4 text-sm leading-7 text-gray-700">{supportLevel === 2 && <><strong className="text-primary">关键词：</strong>{target.keywords.join(' · ')}</>}{supportLevel === 3 && target.gapTranscript}{supportLevel === 4 && target.transcript}{supportLevel >= 5 && <><p>{target.transcript}</p><p className="mt-2 text-gray-500">{target.translation}</p></>}</div>}
         <VocabularyRescue speaker={target} onReplay={() => playerRef.current?.replay()} onOpen={() => {}} courseName="Pourquoi choisir le français ?" themes={['听力课', '学习动机']} />
-        <button type="button" onClick={finishTarget} className="mt-6 min-h-12 w-full rounded-lg bg-primary font-black text-white">{nextSection(targetId, new Set(completedTargets).add(targetId)) ? `听下一组：${nextSection(targetId, new Set(completedTargets).add(targetId))!.name}` : '完成定向再听'}</button>
+        <button type="button" onClick={finishTarget} className="mt-6 min-h-12 w-full rounded-lg bg-primary font-black text-white">{nextSection(targetId, new Set<ReasonSectionId>(completedTargets).add(targetId)) ? `听下一组：${nextSection(targetId, new Set<ReasonSectionId>(completedTargets).add(targetId))!.name}` : '完成定向再听'}</button>
       </section>
     );
 
@@ -229,7 +317,7 @@ const ListeningReasonsView: React.FC = () => {
         {!isReviewed && <button type="button" aria-expanded={shownDictationTranslations.has(dictationId)} onClick={() => setShownDictationTranslations((current) => { const next = new Set(current); next.has(dictationId) ? next.delete(dictationId) : next.add(dictationId); return next; })} className="mt-3 min-h-11 text-sm font-bold text-primary">{shownDictationTranslations.has(dictationId) ? '收起中文翻译' : '需要帮助？显示中文翻译'}</button>}
         {!isReviewed && shownDictationTranslations.has(dictationId) && <p className="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-900">{dictation.translation}</p>}
         {isReviewed && <div className="mt-4 rounded-lg bg-indigo-50 p-4 text-sm leading-7 text-gray-700"><p className="text-xs font-black text-primary">完整答案</p><p className="mt-1">{dictation.transcript}</p><p className="mt-3 border-t border-indigo-100 pt-3 text-gray-500">{dictation.translation}</p></div>}
-        <button type="button" onClick={checkDictation} className="mt-6 min-h-12 w-full rounded-lg bg-primary font-black text-white">{!isReviewed ? `核对 ${dictation.name}` : nextSection(dictationId, new Set(reviewed).add(dictationId)) ? `听写下一组：${nextSection(dictationId, new Set(reviewed).add(dictationId))!.name}` : '查看学习反思'}</button>
+        <button type="button" onClick={checkDictation} className="mt-6 min-h-12 w-full rounded-lg bg-primary font-black text-white">{!isReviewed ? `核对 ${dictation.name}` : nextSection(dictationId, new Set<ReasonSectionId>(reviewed).add(dictationId)) ? `听写下一组：${nextSection(dictationId, new Set<ReasonSectionId>(reviewed).add(dictationId))!.name}` : '查看学习反思'}</button>
       </section>;
     }
 
@@ -247,6 +335,7 @@ const ListeningReasonsView: React.FC = () => {
         <label htmlFor="personal-expression" className="mt-5 block text-sm font-black text-gray-800">我的表达</label>
         <textarea id="personal-expression" value={personalExpression} onChange={(event) => setPersonalExpression(event.target.value)} rows={4} className="mt-2 w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm font-bold leading-6 text-gray-700 outline-none focus:border-primary focus:ring-2 focus:ring-indigo-100" />
       </div>
+      <p className="mt-6 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">学习档案已自动保存，可在课程列表中随时回顾。</p>
       <Link to="/listening" className="mt-6 flex min-h-12 items-center justify-center rounded-lg bg-primary font-black text-white">返回课程列表</Link>
     </section>;
   };
