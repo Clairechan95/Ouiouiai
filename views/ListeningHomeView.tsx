@@ -38,6 +38,12 @@ const lessons: Array<{
     description: '听懂方向、路口顺序、距离和沿途地标。', video: '/listening/banque-de-paris.mp4',
     cover: '/listening/demander-son-chemin-cover.jpg',
   },
+  {
+    id: 'faire-les-courses', path: '/listening/faire-les-courses', number: '04', title: 'Faire les courses au supermarché',
+    chinese: '在超市购物', meta: '真实情境 · 约1分45秒',
+    description: '听懂购物目的、商品配料、尺码、价格和付款方式。', video: '/listening/faire-les-courses.mp4',
+    cover: '/listening/faire-les-courses-cover.jpg',
+  },
 ];
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat('zh-CN', {

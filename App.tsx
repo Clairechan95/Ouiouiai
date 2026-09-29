@@ -26,6 +26,7 @@ const ListeningLessonView = React.lazy(() => import('./views/ListeningLessonView
 const ListeningHomeView = React.lazy(() => import('./views/ListeningHomeView'));
 const ListeningReasonsView = React.lazy(() => import('./views/ListeningReasonsView'));
 const ListeningDirectionsView = React.lazy(() => import('./views/ListeningDirectionsView'));
+const ListeningShoppingView = React.lazy(() => import('./views/ListeningShoppingView'));
 const AccountView = React.lazy(() => import('./views/AccountView'));
 const TeacherDashboardView = React.lazy(() => import('./views/TeacherDashboardView'));
 
@@ -346,6 +347,14 @@ const App: React.FC = () => {
               element={(
                 <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
                   <ListeningDirectionsView />
+                </React.Suspense>
+              )}
+            />
+            <Route
+              path="/listening/faire-les-courses"
+              element={(
+                <React.Suspense fallback={<div className="py-20 text-center text-gray-400">正在准备听力课程...</div>}>
+                  <ListeningShoppingView />
                 </React.Suspense>
               )}
             />

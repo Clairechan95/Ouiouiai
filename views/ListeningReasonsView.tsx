@@ -7,6 +7,7 @@ import { useAppContext } from '../App';
 import { trackLearningEvent } from '../services/learningAnalyticsService';
 import { useListeningProgress } from '../hooks/useListeningProgress';
 import { loadLocalListeningRecord } from '../services/listeningProgressService';
+import { dictationAnswersMatch, withoutFrenchAccents } from '../services/frenchAnswerService';
 import {
   REASON_SECTIONS,
   REASONS_COMPREHENSION_QUESTIONS,
@@ -27,8 +28,6 @@ const PERSONAL_EXPRESSION_MODELS = [
   { label: '语言意象', text: 'Pour moi, la langue française, c’est avant tout la langue des couleurs et de la lumière.' },
   { label: '爱情表达', text: 'Je choisis le français parce que j’aime sa façon originale de dire « je t’aime ».' },
 ];
-const normalize = (value: string) => value.trim().toLocaleLowerCase('fr-FR').normalize('NFC');
-const noAccents = (value: string) => normalize(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 type ReasonsProgress = {
   step: number;
@@ -153,9 +152,9 @@ const ListeningReasonsView: React.FC = () => {
     REASON_SECTIONS.forEach((section) => fieldsFor(section.id).forEach((field) => {
       dictationTotal += 1;
       const value = inputs[field.id] ?? '';
-      if (normalize(value) === normalize(field.answer)) dictationCorrect += 1;
+      if (dictationAnswersMatch(value, field.answer)) dictationCorrect += 1;
       else if (!value.trim()) errors.push(`${field.label}：未填写（${field.answer}）`);
-      else if (noAccents(value) === noAccents(field.answer)) errors.push(`${field.label}：注意重音符号（${field.answer}）`);
+      else if (withoutFrenchAccents(value) === withoutFrenchAccents(field.answer)) errors.push(`${field.label}：注意重音符号（${field.answer}）`);
       else errors.push(`${field.label}：拼写或词形需复习（${field.answer}）`);
     }));
     if (comprehensionCorrect < REASONS_COMPREHENSION_QUESTIONS.length) errors.unshift('内容核验：部分关键词或核心内容还需要再次确认');
@@ -312,7 +311,8 @@ const ListeningReasonsView: React.FC = () => {
         <div className="mt-6 rounded-lg border border-gray-200 bg-white p-4 text-base leading-[3.2] text-gray-700">{dictation.dictationTemplate.map((part, index) => {
           if (typeof part === 'string') return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
           const blankNumber = dictation.dictationTemplate.slice(0, index).filter((item) => typeof item !== 'string').length + 1;
-          return <span key={part.id} className="inline-block"><input value={inputs[part.id] ?? ''} disabled={isReviewed} onChange={(event) => setInputs((current) => ({ ...current, [part.id]: event.target.value }))} placeholder={`第${blankNumber}空`} aria-label={`${dictation.name}第${blankNumber}空`} className={`mx-1 h-10 w-32 rounded-md border px-2 text-center text-sm font-bold ${isReviewed ? normalize(inputs[part.id] ?? '') === normalize(part.answer) ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-600' : 'border-gray-300'}`} />{isReviewed && normalize(inputs[part.id] ?? '') !== normalize(part.answer) && <span className="mr-2 text-xs font-bold text-emerald-600">{part.answer}</span>}</span>;
+          const isCorrect = dictationAnswersMatch(inputs[part.id] ?? '', part.answer);
+          return <span key={part.id} className="inline-block"><input value={inputs[part.id] ?? ''} disabled={isReviewed} onChange={(event) => setInputs((current) => ({ ...current, [part.id]: event.target.value }))} placeholder={`第${blankNumber}空`} aria-label={`${dictation.name}第${blankNumber}空`} className={`mx-1 h-10 w-32 rounded-md border px-2 text-center text-sm font-bold ${isReviewed ? isCorrect ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-red-300 bg-red-50 text-red-600' : 'border-gray-300'}`} />{isReviewed && !isCorrect && <span className="mr-2 text-xs font-bold text-emerald-600">{part.answer}</span>}</span>;
         })}</div>
         {!isReviewed && <button type="button" aria-expanded={shownDictationTranslations.has(dictationId)} onClick={() => setShownDictationTranslations((current) => { const next = new Set(current); next.has(dictationId) ? next.delete(dictationId) : next.add(dictationId); return next; })} className="mt-3 min-h-11 text-sm font-bold text-primary">{shownDictationTranslations.has(dictationId) ? '收起中文翻译' : '需要帮助？显示中文翻译'}</button>}
         {!isReviewed && shownDictationTranslations.has(dictationId) && <p className="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-900">{dictation.translation}</p>}

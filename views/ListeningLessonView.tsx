@@ -17,6 +17,7 @@ import { useAppContext } from '../App';
 import { trackLearningEvent } from '../services/learningAnalyticsService';
 import { useListeningProgress } from '../hooks/useListeningProgress';
 import { loadLocalListeningRecord } from '../services/listeningProgressService';
+import { dictationAnswersMatch, withoutFrenchAccents } from '../services/frenchAnswerService';
 import {
   DETAIL_OPTIONS,
   DictationField,
@@ -53,9 +54,6 @@ type SePresenterProgress = {
   completed: boolean;
 };
 
-const normalizeAnswer = (value: string) => value.trim().toLocaleLowerCase('fr-FR').normalize('NFC');
-const withoutAccents = (value: string) =>
-  normalizeAnswer(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 const getDictationFields = (speaker: ListeningSpeaker) =>
   speaker.dictationTemplate.filter((part): part is DictationField => typeof part !== 'string');
@@ -233,11 +231,11 @@ const ListeningLessonView: React.FC = () => {
       getDictationFields(speaker).forEach((field) => {
         dictationTotal += 1;
         const value = dictationInputs[field.id] ?? '';
-        if (normalizeAnswer(value) === normalizeAnswer(field.answer)) {
+        if (dictationAnswersMatch(value, field.answer)) {
           dictationCorrect += 1;
         } else if (!value.trim()) {
           errors.push(`${field.label}：未填写（${field.answer}）`);
-        } else if (withoutAccents(value) === withoutAccents(field.answer)) {
+        } else if (withoutFrenchAccents(value) === withoutFrenchAccents(field.answer)) {
           errors.push(`${field.label}：注意重音符号（${field.answer}）`);
         } else {
           errors.push(`${field.label}：拼写需复习（${field.answer}）`);
@@ -593,7 +591,7 @@ const ListeningLessonView: React.FC = () => {
             {dictationSpeaker.dictationTemplate.map((part, index) => {
               if (typeof part === 'string') return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
               const value = dictationInputs[part.id] ?? '';
-              const isCorrect = normalizeAnswer(value) === normalizeAnswer(part.answer);
+              const isCorrect = dictationAnswersMatch(value, part.answer);
               return (
                 <input
                   key={part.id}
