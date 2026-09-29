@@ -9,7 +9,7 @@ export interface ListeningScore {
   total: number;
 }
 
-export interface ListeningLearningArchive {
+export interface ListeningLearningAttempt {
   courseTitle: string;
   completedAt: string;
   scores: ListeningScore[];
@@ -18,6 +18,10 @@ export interface ListeningLearningArchive {
   personalExpression?: string;
   supports?: string[];
   vocabularyHelp?: string[];
+}
+
+export interface ListeningLearningArchive extends ListeningLearningAttempt {
+  previousAttempts?: ListeningLearningAttempt[];
 }
 
 export interface ListeningProgressRecord<T extends Record<string, unknown> = Record<string, unknown>> {
@@ -96,6 +100,30 @@ export const saveLocalListeningRecord = (
   } catch {}
 };
 
+const archiveSnapshot = (archive: ListeningLearningArchive): ListeningLearningAttempt => ({
+  courseTitle: archive.courseTitle,
+  completedAt: archive.completedAt,
+  scores: archive.scores,
+  errors: archive.errors,
+  strategies: archive.strategies,
+  personalExpression: archive.personalExpression,
+  supports: archive.supports,
+  vocabularyHelp: archive.vocabularyHelp,
+});
+
+export const mergeListeningArchiveAttempt = (
+  existing: ListeningLearningArchive | null | undefined,
+  latest: ListeningLearningArchive,
+): ListeningLearningArchive => {
+  if (!existing) return latest;
+  const previousAttempts = [...(existing.previousAttempts ?? [])];
+  if (existing.completedAt !== latest.completedAt
+    && !previousAttempts.some((attempt) => attempt.completedAt === existing.completedAt)) {
+    previousAttempts.push(archiveSnapshot(existing));
+  }
+  return { ...latest, previousAttempts: previousAttempts.slice(-9) };
+};
+
 const getOwnedSession = async (expectedUserId: string) => {
   const { data } = await supabase.auth.getSession();
   return data.session?.user.id === expectedUserId ? data.session : null;
@@ -165,6 +193,27 @@ export const upsertCloudListeningRecord = async (
     completed_at: record.completedAt,
     updated_at: record.updatedAt,
   }, { onConflict: 'user_id,course_id' });
+};
+
+export const restartListeningCourse = async (
+  courseId: ListeningCourseId,
+  userId?: string | null,
+) => {
+  const existing = loadLocalListeningRecord(courseId, userId);
+  const record: ListeningProgressRecord = {
+    courseId,
+    contentVersion: existing?.contentVersion ?? 1,
+    status: 'in_progress',
+    currentStep: 0,
+    maxStep: 0,
+    progressState: {},
+    learningArchive: existing?.learningArchive ?? null,
+    completedAt: null,
+    updatedAt: new Date().toISOString(),
+  };
+  saveLocalListeningRecord(record, userId);
+  if (userId && navigator.onLine) await upsertCloudListeningRecord(record, userId).catch(() => {});
+  return record;
 };
 
 export const scheduleListeningRecordSync = (

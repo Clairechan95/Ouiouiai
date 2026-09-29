@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import { LearnerProfile, OuiOuiClass } from './classService';
+import { ListeningLearningArchive } from './listeningProgressService';
 
 export interface TeacherMembership {
   class_id: string;
@@ -39,16 +40,7 @@ export interface TeacherListeningRecord {
   status: 'in_progress' | 'completed';
   current_step: number;
   max_step: number;
-  learning_archive: {
-    courseTitle: string;
-    completedAt: string;
-    scores: Array<{ label: string; score: number; total: number }>;
-    errors: string[];
-    strategies: string[];
-    personalExpression?: string;
-    supports?: string[];
-    vocabularyHelp?: string[];
-  } | null;
+  learning_archive: ListeningLearningArchive | null;
   completed_at: string | null;
   updated_at: string;
 }

@@ -166,7 +166,7 @@ export const SHOPPING_CLIPS: ShoppingClip[] = [
     name: 'Une paire de chaussettes',
     chineseName: '购买袜子',
     prompt: '抓住商品、尺码和店员帮助寻找商品的交际过程。',
-    range: { start: 33.0, end: 62.0, label: '购买袜子 · 含前后语境' },
+    range: { start: 30.0, end: 62.0, label: '购买袜子 · 完整保留首句' },
     keywords: ["j'ai besoin d'une paire", 'vous pouvez m’aider', 'une paire en 44', 'taille 44', '39-41', "c'est celle-ci"],
     gapTranscript: "J'ai besoin d'une paire de ___. Vous pouvez m'aider ? Je cherche une paire en ___. Vous avez cette paire en taille ___, s'il vous plaît ?",
     transcript: "Mais d'abord, j'ai besoin d'une paire de chaussettes. Excusez-moi, vous pouvez m'aider ? Oui, bien sûr. Je cherche une paire en 44. Vous avez cette paire en taille 44, s'il vous plaît ? Donc ça, c'est 39-41. Voilà, elle est ici. C'est celle-ci. Merci monsieur. De rien. Au revoir.",

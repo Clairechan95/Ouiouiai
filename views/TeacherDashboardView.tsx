@@ -216,22 +216,24 @@ const TeacherDashboardView: React.FC = () => {
     const membershipMap = new Map<string, TeacherMembership>(data.memberships.map((item) => [item.user_id, item]));
     const profileMap = new Map<string, LearnerProfile>(data.profiles.map((item) => [item.user_id, item]));
     const includedUsers = new Set(filteredLearners.filter(row => !selectedUserId || row.membership.user_id === selectedUserId).map(row => row.membership.user_id));
-    const rows: unknown[][] = [['班级', '姓名', '学号', '研究编号', '课程', '完成时间（北京时间）', '成绩', '错误归纳', '学习策略', '个人表达']];
+    const rows: unknown[][] = [['班级', '姓名', '学号', '研究编号', '课程', '完成轮次', '完成时间（北京时间）', '成绩', '错误归纳', '学习策略', '个人表达']];
     data.listeningRecords.filter(record => includedUsers.has(record.user_id) && record.learning_archive).forEach((record) => {
       const archive = record.learning_archive!;
       const membership = membershipMap.get(record.user_id);
-      rows.push([
+      const attempts = [...(archive.previousAttempts ?? []), archive];
+      attempts.forEach((attempt, index) => rows.push([
         data.classInfo.name,
         profileMap.get(record.user_id)?.display_name,
         membership?.student_number,
         membership?.research_id || profileMap.get(record.user_id)?.research_id,
-        archive.courseTitle,
-        formatDateTime(archive.completedAt),
-        archive.scores.map(score => `${score.label} ${score.score}/${score.total}`).join('；'),
-        archive.errors.join('；'),
-        archive.strategies.join('；'),
-        archive.personalExpression || '',
-      ]);
+        attempt.courseTitle,
+        `第 ${index + 1} 次`,
+        formatDateTime(attempt.completedAt),
+        attempt.scores.map(score => `${score.label} ${score.score}/${score.total}`).join('；'),
+        attempt.errors.join('；'),
+        attempt.strategies.join('；'),
+        attempt.personalExpression || '',
+      ]));
     });
     downloadCsv(`OuiOui_${data.classInfo.name}_听力学习档案.csv`, rows);
   };
@@ -330,7 +332,7 @@ const LearnerTimeline: React.FC<LearnerTimelineProps> = ({ learner, onClose }) =
 
     {learner.listeningRecords.length > 0 && <section className="mt-6"><h3 className="flex items-center gap-2 text-lg font-black text-gray-800"><BookOpenCheck className="h-5 w-5 text-primary" />听力学习档案</h3><div className="mt-3 grid gap-4 lg:grid-cols-2">{learner.listeningRecords.map((record) => {
       const archive = record.learning_archive!;
-      return <article key={record.course_id} className="rounded-lg border border-gray-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><h4 className="font-black text-gray-800">{archive.courseTitle}</h4><time className="text-xs text-gray-400">{formatDateTime(archive.completedAt)}</time></div><div className="mt-3 flex flex-wrap gap-2">{archive.scores.map((score) => <span key={score.label} className="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-bold text-gray-600">{score.label} {score.score}/{score.total}</span>)}</div><p className="mt-3 text-sm leading-6 text-gray-600"><strong className="text-gray-800">错误归纳：</strong>{archive.errors.length ? archive.errors.join('；') : '本次练习全部正确。'}</p>{archive.strategies.length > 0 && <p className="mt-2 text-sm leading-6 text-gray-600"><strong className="text-gray-800">学习策略：</strong>{archive.strategies.join('；')}</p>}{archive.personalExpression && <div className="mt-3 border-l-4 border-primary bg-indigo-50 px-3 py-2 text-sm leading-6 text-gray-700"><strong className="block text-xs text-primary">个人表达</strong>{archive.personalExpression}</div>}</article>;
+      return <article key={record.course_id} className="rounded-lg border border-gray-200 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><h4 className="font-black text-gray-800">{archive.courseTitle}</h4>{archive.previousAttempts?.length ? <p className="mt-1 text-xs font-bold text-gray-400">已完成 {archive.previousAttempts.length + 1} 次 · 当前显示最近一次</p> : null}</div><time className="text-xs text-gray-400">{formatDateTime(archive.completedAt)}</time></div><div className="mt-3 flex flex-wrap gap-2">{archive.scores.map((score) => <span key={score.label} className="rounded-md bg-gray-50 px-2.5 py-1.5 text-xs font-bold text-gray-600">{score.label} {score.score}/{score.total}</span>)}</div><p className="mt-3 text-sm leading-6 text-gray-600"><strong className="text-gray-800">错误归纳：</strong>{archive.errors.length ? archive.errors.join('；') : '本次练习全部正确。'}</p>{archive.strategies.length > 0 && <p className="mt-2 text-sm leading-6 text-gray-600"><strong className="text-gray-800">学习策略：</strong>{archive.strategies.join('；')}</p>}{archive.personalExpression && <div className="mt-3 border-l-4 border-primary bg-indigo-50 px-3 py-2 text-sm leading-6 text-gray-700"><strong className="block text-xs text-primary">个人表达</strong>{archive.personalExpression}</div>}</article>;
     })}</div></section>}
 
     <section className="mt-7"><h3 className="text-lg font-black text-gray-800">学习事件</h3><div className="mt-3 space-y-3">{learner.events.map((event) => { const session = sessionMap.get(event.session_id); return <article key={event.id} className="grid gap-2 border-l-4 border-gray-200 bg-white px-4 py-3 sm:grid-cols-[130px_1fr_auto]"><time className="text-xs font-bold text-gray-400">{formatDateTime(event.occurred_at)}</time><div><strong className="text-sm text-gray-800">{EVENT_LABELS[event.event_type] || event.event_type}</strong><p className="mt-1 text-xs text-gray-400">{MODULE_LABELS[event.module] || event.module}{event.target_id ? ` · ${event.target_id}` : ''}</p></div><span className="inline-flex items-center gap-1 text-xs text-gray-400"><MonitorSmartphone className="h-4 w-4" />{session?.site === 'domestic' ? '国内站' : session?.site === 'backup' ? '备用站' : session?.site === 'local' ? '本地' : '来源未知'} · {session?.device_category || '未知设备'}</span></article>; })}{learner.events.length === 0 && <p className="border border-gray-100 bg-white p-8 text-center text-sm text-gray-400">当前时间范围内没有学习事件</p>}</div></section>

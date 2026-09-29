@@ -5,6 +5,7 @@ import {
   ListeningLearningArchive,
   ListeningProgressRecord,
   loadLocalListeningRecord,
+  mergeListeningArchiveAttempt,
   saveLocalListeningRecord,
   scheduleListeningRecordSync,
   upsertCloudListeningRecord,
@@ -62,6 +63,9 @@ export const useListeningProgress = <T extends Record<string, unknown>>({
     const timer = window.setTimeout(() => {
       const existing = loadLocalListeningRecord(courseId, userId);
       const completedAt = learningArchive?.completedAt ?? existing?.completedAt ?? null;
+      const archivedLearning = learningArchive
+        ? mergeListeningArchiveAttempt(existing?.learningArchive, learningArchive)
+        : existing?.learningArchive ?? null;
       scheduleListeningRecordSync({
         courseId,
         contentVersion,
@@ -69,7 +73,7 @@ export const useListeningProgress = <T extends Record<string, unknown>>({
         currentStep,
         maxStep,
         progressState,
-        learningArchive,
+        learningArchive: archivedLearning,
         completedAt,
         updatedAt: new Date().toISOString(),
       }, userId);

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, BookOpenCheck, CheckCircle2, ChevronDown, ChevronUp, Clock3, Headphones } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { ArrowRight, BookOpenCheck, CheckCircle2, ChevronDown, ChevronUp, Clock3, Headphones, RotateCcw } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAppContext } from '../App';
 import {
   fetchCloudListeningRecords,
@@ -8,6 +8,7 @@ import {
   ListeningProgressRecord,
   listLocalListeningRecords,
   mergeListeningRecords,
+  restartListeningCourse,
   saveLocalListeningRecord,
 } from '../services/listeningProgressService';
 
@@ -53,8 +54,10 @@ const formatDateTime = (iso: string) => new Intl.DateTimeFormat('zh-CN', {
 
 const ListeningHomeView: React.FC = () => {
   const { user } = useAppContext();
+  const navigate = useNavigate();
   const [records, setRecords] = useState<ListeningProgressRecord[]>(() => listLocalListeningRecords(user?.id));
   const [portfolioOpen, setPortfolioOpen] = useState(false);
+  const [restartingCourse, setRestartingCourse] = useState<ListeningCourseId | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +81,17 @@ const ListeningHomeView: React.FC = () => {
   const recordMap = useMemo(() => new Map(records.map((record) => [record.courseId, record])), [records]);
   const archives = records.filter((record) => record.learningArchive);
 
+  const restartCourse = async (courseId: ListeningCourseId, path: string) => {
+    if (restartingCourse) return;
+    setRestartingCourse(courseId);
+    try {
+      await restartListeningCourse(courseId, user?.id);
+      navigate(path);
+    } finally {
+      setRestartingCourse(null);
+    }
+  };
+
   return (
     <div className="py-8 md:py-12">
       <header className="flex flex-col gap-4 border-b border-gray-100 pb-7 sm:flex-row sm:items-end sm:justify-between">
@@ -99,7 +113,7 @@ const ListeningHomeView: React.FC = () => {
             const archive = record.learningArchive!;
             const lesson = lessons.find((item) => item.id === record.courseId);
             return <article key={record.courseId} className="rounded-lg border border-gray-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black text-primary">课程 {lesson?.number}</p><h3 className="mt-1 text-lg font-black text-gray-800">{archive.courseTitle}</h3></div><time className="text-xs text-gray-400">{formatDateTime(archive.completedAt)}</time></div>
+              <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-black text-primary">课程 {lesson?.number}</p><h3 className="mt-1 text-lg font-black text-gray-800">{archive.courseTitle}</h3>{archive.previousAttempts?.length ? <p className="mt-1 text-xs font-bold text-gray-400">已完成 {archive.previousAttempts.length + 1} 次 · 当前显示最近一次</p> : null}</div><time className="text-xs text-gray-400">{formatDateTime(archive.completedAt)}</time></div>
               <div className="mt-4 flex flex-wrap gap-2">{archive.scores.map((score) => <span key={score.label} className="rounded-md bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600">{score.label} {score.score}/{score.total}</span>)}</div>
               <div className="mt-4 border-t border-gray-100 pt-4 text-sm leading-6 text-gray-600"><strong className="text-gray-800">错误归纳：</strong>{archive.errors.length ? archive.errors.slice(0, 3).join('；') : '本次练习全部正确。'}</div>
               {archive.strategies.length > 0 && <p className="mt-2 text-sm leading-6 text-gray-600"><strong className="text-gray-800">有效策略：</strong>{archive.strategies.join('；')}</p>}
@@ -125,9 +139,12 @@ const ListeningHomeView: React.FC = () => {
             <div className="p-5">
               <div className="flex items-start justify-between gap-4"><div><h2 className="text-xl font-black text-gray-800">{lesson.title}</h2><p className="mt-1 text-sm font-bold text-primary">{lesson.chinese}</p></div><span className="flex flex-shrink-0 items-center gap-1 text-xs text-gray-400"><Clock3 className="h-3.5 w-3.5" />{lesson.meta}</span></div>
               <p className="mt-4 text-sm leading-6 text-gray-500">{lesson.description}</p>
-              <div className="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${record ? 'text-emerald-600' : 'text-gray-500'}`}><CheckCircle2 className="h-4 w-4" />{progressLabel}</span>
-                <Link to={lesson.path} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white">{action}<ArrowRight className="h-4 w-4" /></Link>
+                {record?.status === 'completed' ? <div className="flex items-center gap-2">
+                  <Link to={lesson.path} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-200 px-3 text-sm font-black text-gray-600">回顾<ArrowRight className="h-4 w-4" /></Link>
+                  <button type="button" disabled={Boolean(restartingCourse)} onClick={() => void restartCourse(lesson.id, lesson.path)} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white disabled:bg-gray-300"><RotateCcw className="h-4 w-4" />{restartingCourse === lesson.id ? '正在重置...' : '重新学习'}</button>
+                </div> : <Link to={lesson.path} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white">{action}<ArrowRight className="h-4 w-4" /></Link>}
               </div>
             </div>
           </article>;
