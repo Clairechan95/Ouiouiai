@@ -45,6 +45,12 @@ const lessons: Array<{
     description: '听懂购物目的、商品配料、尺码、价格和付款方式。', video: '/listening/faire-les-courses.mp4',
     cover: '/listening/faire-les-courses-cover.jpg',
   },
+  {
+    id: 'reserver-une-table', path: '/listening/reserver-une-table', number: '05', title: 'Réserver une table au restaurant',
+    chinese: '电话预订餐桌', meta: '电话对话 · 约37秒',
+    description: '听懂预订时间、人数、姓名、座位要求和替代安排。', video: '/listening/reserver-table.mp3',
+    cover: '/listening/reserver-table-cover.jpg',
+  },
 ];
 
 const formatDateTime = (iso: string) => new Intl.DateTimeFormat('zh-CN', {

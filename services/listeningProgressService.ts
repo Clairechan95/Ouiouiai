@@ -1,6 +1,6 @@
 import { supabase } from './supabaseClient';
 
-export type ListeningCourseId = 'se-presenter' | 'pourquoi-francais' | 'demander-son-chemin' | 'faire-les-courses';
+export type ListeningCourseId = 'se-presenter' | 'pourquoi-francais' | 'demander-son-chemin' | 'faire-les-courses' | 'reserver-une-table';
 export type ListeningRecordStatus = 'in_progress' | 'completed';
 
 export interface ListeningScore {
