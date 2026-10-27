@@ -5,6 +5,7 @@ import { ListeningLearningArchive } from './listeningProgressService';
 export interface TeacherMembership {
   class_id: string;
   user_id: string;
+  display_name_override: string | null;
   student_number: string | null;
   research_id: string | null;
   status: 'active' | 'inactive';
@@ -73,7 +74,7 @@ export const fetchTeacherClassData = async (
   const throughIso = new Date().toISOString();
   const memberships = await readPages<TeacherMembership>(offset => supabase
     .from('class_memberships')
-    .select('class_id, user_id, student_number, research_id, status, joined_at')
+    .select('class_id, user_id, display_name_override, student_number, research_id, status, joined_at')
     .eq('class_id', classInfo.id)
     .eq('status', 'active')
     .order('user_id').range(offset, offset + 499).abortSignal(signal));

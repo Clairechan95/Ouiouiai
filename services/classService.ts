@@ -30,6 +30,21 @@ export interface AccountContext {
   teachingClasses: OuiOuiClass[];
 }
 
+export interface ManagedClassLearner {
+  class_id: string;
+  user_id: string;
+  display_name: string | null;
+  student_number: string | null;
+  research_id: string | null;
+  status: 'active' | 'inactive';
+}
+
+const firstRpcRow = <T>(data: T | T[] | null): T => {
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('操作没有返回结果');
+  return row;
+};
+
 export const fetchAccountContext = async (userId: string): Promise<AccountContext> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -71,6 +86,67 @@ export const updateMyProfile = async (displayName: string): Promise<LearnerProfi
   });
   if (error) throw error;
   return data as LearnerProfile;
+};
+
+export const createTeacherClass = async (name: string): Promise<OuiOuiClass> => {
+  const { data, error } = await supabase.rpc('create_teacher_class', { requested_name: name });
+  if (error) throw error;
+  return firstRpcRow(data as OuiOuiClass | OuiOuiClass[] | null);
+};
+
+export const renameTeacherClass = async (classId: string, name: string): Promise<OuiOuiClass> => {
+  const { data, error } = await supabase.rpc('rename_teacher_class', {
+    requested_class_id: classId,
+    requested_name: name,
+  });
+  if (error) throw error;
+  return firstRpcRow(data as OuiOuiClass | OuiOuiClass[] | null);
+};
+
+export const regenerateClassInvite = async (classId: string): Promise<OuiOuiClass> => {
+  const { data, error } = await supabase.rpc('regenerate_class_invite', { requested_class_id: classId });
+  if (error) throw error;
+  return firstRpcRow(data as OuiOuiClass | OuiOuiClass[] | null);
+};
+
+export const addRegisteredLearnerToClass = async (
+  classId: string,
+  email: string,
+  displayName: string,
+  studentNumber: string,
+): Promise<ManagedClassLearner> => {
+  const { data, error } = await supabase.rpc('add_registered_learner_to_class', {
+    requested_class_id: classId,
+    requested_email: email,
+    requested_display_name: displayName || null,
+    requested_student_number: studentNumber || null,
+  });
+  if (error) throw error;
+  return firstRpcRow(data as ManagedClassLearner | ManagedClassLearner[] | null);
+};
+
+export const updateClassLearner = async (
+  classId: string,
+  userId: string,
+  displayName: string,
+  studentNumber: string,
+): Promise<ManagedClassLearner> => {
+  const { data, error } = await supabase.rpc('update_class_learner', {
+    requested_class_id: classId,
+    requested_user_id: userId,
+    requested_display_name: displayName,
+    requested_student_number: studentNumber,
+  });
+  if (error) throw error;
+  return firstRpcRow(data as ManagedClassLearner | ManagedClassLearner[] | null);
+};
+
+export const removeLearnerFromClass = async (classId: string, userId: string): Promise<void> => {
+  const { error } = await supabase.rpc('remove_learner_from_class', {
+    requested_class_id: classId,
+    requested_user_id: userId,
+  });
+  if (error) throw error;
 };
 
 export const joinClassByInvite = async (

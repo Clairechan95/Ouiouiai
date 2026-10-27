@@ -20,7 +20,7 @@ test('teacher database: real PostgreSQL migrations, ownership and retry isolatio
       grant execute on function auth.uid() to anon, authenticated;
       alter default privileges in schema public grant all on tables to anon, authenticated;
     `);
-    for (const file of ['0002_teacher_analytics_phase1.sql', '0003_learning_event_ingest.sql', '0004_analytics_access_guards.sql', '0004_analytics_access_guards.sql', '0005_listening_learning_records.sql']) {
+    for (const file of ['0002_teacher_analytics_phase1.sql', '0003_learning_event_ingest.sql', '0004_analytics_access_guards.sql', '0004_analytics_access_guards.sql', '0005_listening_learning_records.sql', '0006_teacher_class_management.sql']) {
       await db.exec(await readFile(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
     }
     const [teacher, otherTeacher, student, otherStudent] = Array.from({ length: 4 }, randomUUID);
@@ -66,7 +66,22 @@ test('teacher database: real PostgreSQL migrations, ownership and retry isolatio
     assert.equal((await db.query('select * from listening_learning_records')).rows.length, 1);
     await assert.rejects(db.query('insert into class_memberships(class_id,user_id) values($1,$2)', [classA, otherStudent]), /permission denied/);
     await assert.rejects(db.query('update class_memberships set user_id=$1', [otherStudent]), /permission denied/);
+    const createdClass = (await db.query("select * from create_teacher_class('Class C')")).rows[0];
+    assert.equal(createdClass.name, 'Class C');
+    assert.equal(createdClass.teacher_id, teacher);
+    await db.query('select * from add_registered_learner_to_class($1,$2,$3,$4)', [createdClass.id, `${otherStudent}@example.test`, 'Managed Student', '003']);
+    assert.equal((await db.query('select display_name_override from class_memberships where class_id=$1 and user_id=$2', [createdClass.id, otherStudent])).rows[0].display_name_override, 'Managed Student');
+    assert.equal((await db.query('select display_name from learner_profiles where user_id=$1', [otherStudent])).rows[0].display_name, 'Student B');
+    await db.query('select * from update_class_learner($1,$2,$3,$4)', [createdClass.id, otherStudent, 'Updated Student', '003A']);
+    assert.equal((await db.query('select display_name_override from class_memberships where class_id=$1 and user_id=$2', [createdClass.id, otherStudent])).rows[0].display_name_override, 'Updated Student');
+    assert.equal((await db.query('select student_number from class_memberships where class_id=$1 and user_id=$2', [createdClass.id, otherStudent])).rows[0].student_number, '003A');
+    await db.query('select remove_learner_from_class($1,$2)', [createdClass.id, otherStudent]);
+    assert.equal((await db.query('select status from class_memberships where class_id=$1 and user_id=$2', [createdClass.id, otherStudent])).rows[0].status, 'inactive');
+    await db.query('select * from add_registered_learner_to_class($1,$2,$3,$4)', [createdClass.id, `${otherStudent}@example.test`, null, null]);
+    assert.equal((await db.query('select status from class_memberships where class_id=$1 and user_id=$2', [createdClass.id, otherStudent])).rows[0].status, 'active');
     await login(otherTeacher);
+    await assert.rejects(db.query('select * from rename_teacher_class($1,$2)', [createdClass.id, 'Hijacked']), /denied/);
+    await assert.rejects(db.query('select remove_learner_from_class($1,$2)', [createdClass.id, otherStudent]), /denied/);
     assert.equal((await db.query('select * from learning_events')).rows.length, 0);
     assert.equal((await db.query('select * from listening_learning_records')).rows.length, 0);
     await login(teacher);

@@ -4,18 +4,34 @@ import {
   AlertTriangle,
   BookOpenCheck,
   CalendarDays,
+  Check,
   ChevronLeft,
   Clock3,
+  Copy,
   Download,
   GraduationCap,
   Loader2,
   MonitorSmartphone,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
+  UserMinus,
+  UserPlus,
   UsersRound,
+  X,
 } from 'lucide-react';
 import { useAppContext } from '../App';
-import { LearnerProfile, OuiOuiClass } from '../services/classService';
+import {
+  addRegisteredLearnerToClass,
+  createTeacherClass,
+  LearnerProfile,
+  OuiOuiClass,
+  regenerateClassInvite,
+  removeLearnerFromClass,
+  renameTeacherClass,
+  updateClassLearner,
+} from '../services/classService';
 import {
   fetchTeacherClassData,
   TeacherClassData,
@@ -54,6 +70,31 @@ const EVENT_LABELS: Record<string, string> = {
 const isLearningAction = (event: TeacherEvent) => event.module !== 'system'
   && !['lookup_failed', 'media_error', 'request_timeout'].includes(event.event_type);
 
+type ManagementMode = 'create-class' | 'rename-class' | 'regenerate-invite' | 'add-learner' | 'edit-learner' | 'remove-learner' | null;
+
+interface ManagementDraft {
+  className: string;
+  email: string;
+  displayName: string;
+  studentNumber: string;
+  userId: string;
+}
+
+const EMPTY_DRAFT: ManagementDraft = {
+  className: '', email: '', displayName: '', studentNumber: '', userId: '',
+};
+
+const managementErrorMessage = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('Class name already exists')) return '这个班级名称已经存在，请换一个名称。';
+  if (message.includes('Registered account not found')) return '没有找到该邮箱对应的注册账号，请让学生先完成注册或使用邀请码加入。';
+  if (message.includes('Teacher account cannot be added')) return '教师账号不能作为学习者加入班级。';
+  if (message.includes('Class name required')) return '请填写班级名称。';
+  if (message.includes('Registered email required')) return '请填写学生注册时使用的邮箱。';
+  if (message.includes('management denied') || message.includes('Teacher role required')) return '当前账号没有管理这个班级的权限。';
+  return '操作暂时未完成，请稍后重试。';
+};
+
 const localDateKey = (iso: string) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date(iso));
@@ -87,6 +128,12 @@ const TeacherDashboardView: React.FC = () => {
   const [error, setError] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [managementMode, setManagementMode] = useState<ManagementMode>(null);
+  const [managementDraft, setManagementDraft] = useState<ManagementDraft>(EMPTY_DRAFT);
+  const [managementBusy, setManagementBusy] = useState(false);
+  const [managementError, setManagementError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [inviteCopied, setInviteCopied] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
 
   const teachingClasses = accountContext?.teachingClasses ?? [];
@@ -131,9 +178,12 @@ const TeacherDashboardView: React.FC = () => {
       const events = data.events.filter((event) => event.user_id === membership.user_id);
       const listeningRecords = data.listeningRecords.filter((record) => record.user_id === membership.user_id && record.learning_archive);
       const activeDays = new Set(events.filter(isLearningAction).map((event) => localDateKey(event.occurred_at)));
+      const effectiveProfile: LearnerProfile = profile
+        ? { ...profile, display_name: membership.display_name_override || profile.display_name }
+        : { user_id: membership.user_id, role: 'student', display_name: membership.display_name_override, research_id: null };
       return {
         membership: { ...membership, research_id: membership.research_id || profile?.research_id || null },
-        profile,
+        profile: effectiveProfile,
         sessions,
         events,
         listeningRecords,
@@ -167,6 +217,88 @@ const TeacherDashboardView: React.FC = () => {
   }, [learningEvents]);
   const maxModuleCount = Math.max(1, ...moduleCounts.map(([, count]) => count));
 
+  const openManagement = (mode: Exclude<ManagementMode, null>, draft: Partial<ManagementDraft> = {}) => {
+    setManagementMode(mode);
+    setManagementDraft({ ...EMPTY_DRAFT, ...draft });
+    setManagementError('');
+  };
+
+  const closeManagement = () => {
+    if (managementBusy) return;
+    setManagementMode(null);
+    setManagementDraft(EMPTY_DRAFT);
+    setManagementError('');
+  };
+
+  const refreshClassData = async (classInfo: OuiOuiClass) => {
+    await refreshAccountContext();
+    await loadData(classInfo);
+  };
+
+  const submitManagement = async () => {
+    setManagementBusy(true);
+    setManagementError('');
+    setNotice('');
+    try {
+      if (managementMode === 'create-class') {
+        const created = await createTeacherClass(managementDraft.className);
+        await refreshAccountContext();
+        setSelectedClassId(created.id);
+        setNotice(`已创建班级“${created.name}”，邀请码已自动生成。`);
+      } else if (managementMode === 'rename-class' && selectedClass) {
+        const changed = await renameTeacherClass(selectedClass.id, managementDraft.className);
+        await refreshAccountContext();
+        setData((current) => current ? { ...current, classInfo: changed } : current);
+        setNotice(`班级已更名为“${changed.name}”。`);
+      } else if (managementMode === 'regenerate-invite' && selectedClass) {
+        const changed = await regenerateClassInvite(selectedClass.id);
+        await refreshAccountContext();
+        setData((current) => current ? { ...current, classInfo: changed } : current);
+        setNotice(`新邀请码 ${changed.invite_code} 已生效，旧邀请码已失效。`);
+      } else if (managementMode === 'add-learner' && selectedClass) {
+        await addRegisteredLearnerToClass(
+          selectedClass.id,
+          managementDraft.email,
+          managementDraft.displayName,
+          managementDraft.studentNumber,
+        );
+        await refreshClassData(selectedClass);
+        setNotice('学习者已加入班级。');
+      } else if (managementMode === 'edit-learner' && selectedClass) {
+        await updateClassLearner(
+          selectedClass.id,
+          managementDraft.userId,
+          managementDraft.displayName,
+          managementDraft.studentNumber,
+        );
+        await refreshClassData(selectedClass);
+        setNotice('学习者信息已更新。');
+      } else if (managementMode === 'remove-learner' && selectedClass) {
+        await removeLearnerFromClass(selectedClass.id, managementDraft.userId);
+        setSelectedUserId(null);
+        await refreshClassData(selectedClass);
+        setNotice('学习者已移出班级，原有账号和学习记录仍保留。');
+      }
+      setManagementMode(null);
+      setManagementDraft(EMPTY_DRAFT);
+    } catch (actionError) {
+      setManagementError(managementErrorMessage(actionError));
+    } finally {
+      setManagementBusy(false);
+    }
+  };
+
+  const copyInviteCode = async () => {
+    if (!selectedClass?.invite_code) return;
+    try {
+      await navigator.clipboard.writeText(selectedClass.invite_code);
+      setInviteCopied(true);
+      window.setTimeout(() => setInviteCopied(false), 1800);
+    } catch {
+      setNotice(`班级邀请码：${selectedClass.invite_code}`);
+    }
+  };
+
   const exportSummary = () => {
     const rows: unknown[][] = [[
       '班级', '姓名', '学号', '研究编号', '状态', '活跃天数', '会话数', '已知活跃分钟', '最近使用（北京时间）', '统计天数', '时区',
@@ -197,7 +329,7 @@ const TeacherDashboardView: React.FC = () => {
       const profile = profileMap.get(event.user_id);
       rows.push([
         data.classInfo.name,
-        profile?.display_name,
+        membership?.display_name_override || profile?.display_name,
         membership?.student_number,
         membership?.research_id || profile?.research_id,
         formatDateTime(event.occurred_at),
@@ -223,7 +355,7 @@ const TeacherDashboardView: React.FC = () => {
       const attempts = [...(archive.previousAttempts ?? []), archive];
       attempts.forEach((attempt, index) => rows.push([
         data.classInfo.name,
-        profileMap.get(record.user_id)?.display_name,
+        membership?.display_name_override || profileMap.get(record.user_id)?.display_name,
         membership?.student_number,
         membership?.research_id || profileMap.get(record.user_id)?.research_id,
         attempt.courseTitle,
@@ -263,15 +395,32 @@ const TeacherDashboardView: React.FC = () => {
 
       <section className="mt-5 flex flex-wrap items-end gap-3 border-b border-gray-100 pb-5">
         <label className="text-xs font-black text-gray-500">班级<select value={selectedClass?.id || ''} onChange={(event) => { setSelectedClassId(event.target.value); setSelectedUserId(null); }} className="mt-1 block h-11 min-w-52 rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-700">{teachingClasses.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <button type="button" onClick={() => openManagement('create-class')} className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-black text-white"><Plus className="h-4 w-4" />新建班级</button>
         <div className="text-xs font-black text-gray-500">统计范围<div className="mt-1 flex h-11 rounded-lg border border-gray-200 bg-white p-1">{[7, 14, 28].map((days) => <button key={days} type="button" onClick={() => setRangeDays(days)} className={`min-w-14 rounded-md px-2 text-sm ${rangeDays === days ? 'bg-primary text-white' : 'text-gray-500'}`}>{days}天</button>)}</div></div>
         <button type="button" onClick={() => selectedClass && loadData(selectedClass)} disabled={loading || !selectedClass} title="刷新数据" className="flex h-11 w-11 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
       </section>
 
       {error && <div className="mt-5 flex items-center gap-2 rounded-lg bg-red-50 p-4 text-sm font-bold text-red-600"><AlertTriangle className="h-5 w-5" />{error}</div>}
-      {!selectedClass && <div className="mt-8 border-l-4 border-amber-400 bg-amber-50 p-5 text-sm text-amber-900">当前教师账号还没有可管理的班级。</div>}
+      {notice && <div className="mt-5 flex items-center gap-2 border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm font-bold text-emerald-800"><Check className="h-5 w-5" />{notice}</div>}
+      {!selectedClass && <div className="mt-8 border-l-4 border-amber-400 bg-amber-50 p-5 text-sm text-amber-900">当前教师账号还没有可管理的班级。点击“新建班级”即可开始。</div>}
 
       {selectedClass && (
         <>
+          <section className="mt-5 flex flex-col gap-4 border border-gray-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black text-gray-400">当前班级邀请码</p>
+              <div className="mt-1 flex items-center gap-2">
+                <strong className="font-mono text-xl text-gray-800">{selectedClass.invite_code || '未生成'}</strong>
+                <button type="button" onClick={copyInviteCode} disabled={!selectedClass.invite_code} title="复制邀请码" className="flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:opacity-40">{inviteCopied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}</button>
+              </div>
+              <p className="mt-1 text-xs text-gray-400">学生注册后可在账号页输入邀请码加入班级。</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => openManagement('rename-class', { className: selectedClass.name })} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-gray-200 px-3 text-sm font-black text-gray-600"><Pencil className="h-4 w-4" />修改名称</button>
+              <button type="button" onClick={() => openManagement('regenerate-invite')} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-gray-200 px-3 text-sm font-black text-gray-600"><RefreshCw className="h-4 w-4" />更换邀请码</button>
+            </div>
+          </section>
+
           <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               [UsersRound, '活跃学习者', activeLearners, `班级共 ${data?.memberships.length ?? 0} 人`],
@@ -287,11 +436,11 @@ const TeacherDashboardView: React.FC = () => {
 
           <section className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,0.7fr)]">
             <div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-lg font-black text-gray-800">学习者</h2><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="姓名、学号或研究编号" className="h-10 w-full rounded-lg border border-gray-200 pl-9 pr-3 text-sm outline-none focus:border-primary sm:w-64" /></label></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><h2 className="text-lg font-black text-gray-800">学习者</h2><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => openManagement('add-learner')} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-gray-800 px-3 text-sm font-black text-white"><UserPlus className="h-4 w-4" />添加学习者</button><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-300" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="姓名、学号或研究编号" className="h-10 w-full rounded-lg border border-gray-200 pl-9 pr-3 text-sm outline-none focus:border-primary sm:w-64" /></label></div></div>
               <div className="mt-3 overflow-x-auto border border-gray-100 bg-white">
-                <table className="w-full min-w-[680px] text-left text-sm">
+                <table className="w-full min-w-[840px] text-left text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-400"><tr><th className="px-4 py-3">学习者</th><th className="px-4 py-3">研究编号</th><th className="px-4 py-3">活跃天数</th><th className="px-4 py-3">会话</th><th className="px-4 py-3">听力档案</th><th className="px-4 py-3">最近使用</th><th className="px-4 py-3"></th></tr></thead>
-                  <tbody className="divide-y divide-gray-100">{filteredLearners.map((row) => <tr key={row.membership.user_id}><td className="px-4 py-3"><strong className="block text-gray-800">{row.profile?.display_name || '未填写姓名'}</strong><span className="text-xs text-gray-400">{row.membership.student_number || '未填写学号'}</span></td><td className="px-4 py-3 font-mono text-xs text-gray-500">{row.membership.research_id || '待分配'}</td><td className="px-4 py-3 font-black text-gray-700">{row.activeDays.size}</td><td className="px-4 py-3 text-gray-600">{row.sessions.length}</td><td className="px-4 py-3 font-black text-primary">{row.listeningRecords.length}</td><td className="px-4 py-3 text-xs text-gray-500">{row.lastActive ? formatDateTime(row.lastActive) : '暂无记录'}</td><td className="px-4 py-3"><button type="button" onClick={() => setSelectedUserId(row.membership.user_id)} className="min-h-9 rounded-md px-3 text-xs font-black text-primary hover:bg-indigo-50">查看时间线</button></td></tr>)}</tbody>
+                  <tbody className="divide-y divide-gray-100">{filteredLearners.map((row) => <tr key={row.membership.user_id}><td className="px-4 py-3"><strong className="block text-gray-800">{row.profile?.display_name || '未填写姓名'}</strong><span className="text-xs text-gray-400">{row.membership.student_number || '未填写学号'}</span></td><td className="px-4 py-3 font-mono text-xs text-gray-500">{row.membership.research_id || '待分配'}</td><td className="px-4 py-3 font-black text-gray-700">{row.activeDays.size}</td><td className="px-4 py-3 text-gray-600">{row.sessions.length}</td><td className="px-4 py-3 font-black text-primary">{row.listeningRecords.length}</td><td className="px-4 py-3 text-xs text-gray-500">{row.lastActive ? formatDateTime(row.lastActive) : '暂无记录'}</td><td className="px-4 py-3"><div className="flex items-center justify-end gap-1"><button type="button" onClick={() => setSelectedUserId(row.membership.user_id)} className="min-h-9 rounded-md px-3 text-xs font-black text-primary hover:bg-indigo-50">查看时间线</button><button type="button" onClick={() => openManagement('edit-learner', { userId: row.membership.user_id, displayName: row.profile?.display_name || '', studentNumber: row.membership.student_number || '' })} title="编辑学习者信息" className="flex h-9 w-9 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100"><Pencil className="h-4 w-4" /></button><button type="button" onClick={() => openManagement('remove-learner', { userId: row.membership.user_id, displayName: row.profile?.display_name || '未填写姓名', studentNumber: row.membership.student_number || '' })} title="移出班级" className="flex h-9 w-9 items-center justify-center rounded-md text-red-500 hover:bg-red-50"><UserMinus className="h-4 w-4" /></button></div></td></tr>)}</tbody>
                 </table>
                 {!loading && filteredLearners.length === 0 && <p className="p-8 text-center text-sm text-gray-400">当前范围内没有匹配的学习者</p>}
               </div>
@@ -307,8 +456,81 @@ const TeacherDashboardView: React.FC = () => {
       )}
 
       {selectedLearner && <LearnerTimeline learner={selectedLearner} onClose={() => setSelectedUserId(null)} />}
+      {managementMode && <ManagementDialog
+        mode={managementMode}
+        draft={managementDraft}
+        busy={managementBusy}
+        error={managementError}
+        selectedClass={selectedClass}
+        onDraftChange={(changes) => setManagementDraft((current) => ({ ...current, ...changes }))}
+        onClose={closeManagement}
+        onSubmit={submitManagement}
+      />}
     </div>
   );
+};
+
+interface ManagementDialogProps {
+  mode: Exclude<ManagementMode, null>;
+  draft: ManagementDraft;
+  busy: boolean;
+  error: string;
+  selectedClass?: OuiOuiClass;
+  onDraftChange: (changes: Partial<ManagementDraft>) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}
+
+const ManagementDialog: React.FC<ManagementDialogProps> = ({
+  mode, draft, busy, error, selectedClass, onDraftChange, onClose, onSubmit,
+}) => {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) onClose(); };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [busy, onClose]);
+
+  const content = {
+    'create-class': { title: '新建班级', description: '创建后会自动生成一个新的班级邀请码。', submit: '创建班级' },
+    'rename-class': { title: '修改班级名称', description: '只修改显示名称，不影响现有学生和学习记录。', submit: '保存名称' },
+    'regenerate-invite': { title: '更换班级邀请码', description: '新邀请码生成后，旧邀请码将立即失效，已在班级中的学生不受影响。', submit: '确认更换' },
+    'add-learner': { title: '添加学习者', description: '输入学生注册 OuiOui 时使用的邮箱。未注册的学生请使用班级邀请码加入。', submit: '加入班级' },
+    'edit-learner': { title: '编辑学习者信息', description: '姓名会同步到该学习者账号，学号仅用于当前班级管理。', submit: '保存信息' },
+    'remove-learner': { title: '移出班级', description: '学习者将不再出现在当前班级中，但账号和既有学习记录都会保留。', submit: '确认移出' },
+  }[mode];
+
+  const inputClass = 'mt-1 h-11 w-full rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-primary';
+  const isDangerous = mode === 'remove-learner' || mode === 'regenerate-invite';
+
+  return <div className="fixed inset-0 z-[80] flex items-end justify-center bg-gray-950/40 p-0 sm:items-center sm:p-6" role="dialog" aria-modal="true" aria-labelledby="teacher-management-title" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <form onSubmit={(event) => { event.preventDefault(); void onSubmit(); }} className="max-h-[92vh] w-full overflow-y-auto bg-white p-5 shadow-2xl sm:max-w-lg sm:rounded-lg sm:p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div><h2 id="teacher-management-title" className="text-xl font-black text-gray-800">{content.title}</h2><p className="mt-2 text-sm leading-6 text-gray-500">{content.description}</p></div>
+        <button type="button" onClick={onClose} disabled={busy} title="关闭" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100"><X className="h-5 w-5" /></button>
+      </div>
+
+      <div className="mt-5 space-y-4">
+        {(mode === 'create-class' || mode === 'rename-class') && <label className="block text-sm font-black text-gray-600">班级名称<input autoFocus required maxLength={80} value={draft.className} onChange={(event) => onDraftChange({ className: event.target.value })} placeholder="例如：25级法语内招班" className={inputClass} /></label>}
+        {mode === 'add-learner' && <>
+          <label className="block text-sm font-black text-gray-600">注册邮箱<input autoFocus required type="email" autoComplete="off" value={draft.email} onChange={(event) => onDraftChange({ email: event.target.value })} placeholder="student@example.com" className={inputClass} /></label>
+          <label className="block text-sm font-black text-gray-600">姓名 <span className="font-normal text-gray-400">（可选）</span><input maxLength={60} value={draft.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} placeholder="学生姓名" className={inputClass} /></label>
+          <label className="block text-sm font-black text-gray-600">学号 <span className="font-normal text-gray-400">（可选）</span><input maxLength={40} value={draft.studentNumber} onChange={(event) => onDraftChange({ studentNumber: event.target.value })} placeholder="学生学号" className={inputClass} /></label>
+        </>}
+        {mode === 'edit-learner' && <>
+          <label className="block text-sm font-black text-gray-600">姓名<input autoFocus maxLength={60} value={draft.displayName} onChange={(event) => onDraftChange({ displayName: event.target.value })} placeholder="学生姓名" className={inputClass} /></label>
+          <label className="block text-sm font-black text-gray-600">学号<input maxLength={40} value={draft.studentNumber} onChange={(event) => onDraftChange({ studentNumber: event.target.value })} placeholder="学生学号" className={inputClass} /></label>
+        </>}
+        {mode === 'regenerate-invite' && <div className="border-l-4 border-amber-400 bg-amber-50 p-4 text-sm text-amber-900">当前班级：<strong>{selectedClass?.name}</strong><br />当前邀请码：<strong className="font-mono">{selectedClass?.invite_code}</strong></div>}
+        {mode === 'remove-learner' && <div className="border-l-4 border-red-400 bg-red-50 p-4 text-sm text-red-800">即将移出：<strong>{draft.displayName}</strong>{draft.studentNumber ? `（${draft.studentNumber}）` : ''}</div>}
+      </div>
+
+      {error && <div role="alert" className="mt-4 flex items-start gap-2 rounded-md bg-red-50 p-3 text-sm font-bold text-red-600"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
+      <div className="mt-6 flex justify-end gap-2">
+        <button type="button" onClick={onClose} disabled={busy} className="min-h-11 rounded-lg border border-gray-200 px-4 text-sm font-black text-gray-600 disabled:opacity-50">取消</button>
+        <button type="submit" disabled={busy} className={`inline-flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-black text-white disabled:opacity-50 ${isDangerous ? 'bg-red-600' : 'bg-primary'}`}>{busy && <Loader2 className="h-4 w-4 animate-spin" />}{content.submit}</button>
+      </div>
+    </form>
+  </div>;
 };
 
 interface LearnerTimelineProps {
